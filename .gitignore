@@ -1,0 +1,39 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual env
+venv/
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Streamlit cache
+.streamlit/
+
+# Data files
+data/
+uploads/
+vector_store/
+
+# Model files
+*.bin
+*.pt
+*.ckpt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+*.egg-info/
