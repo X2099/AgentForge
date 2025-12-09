@@ -5,6 +5,8 @@
 @Desc    : 
 """
 from typing import Optional, Dict
+
+from chromadb import EmbeddingFunction
 from .base_store import BaseVectorStore
 from .chroma_store import ChromaVectorStore
 from .faiss_store import FAISSVectorStore
@@ -34,12 +36,14 @@ class VectorStoreFactory:
             # 为Chroma创建嵌入函数
             embedder = EmbedderFactory.create_embedder(**embedder_config)
 
-            # 包装为Chroma兼容的嵌入函数
-            def chroma_embed_function(texts):
-                embeddings = embedder.embed_documents(texts)
-                return embeddings
+            class MyEmbeddingFunction(EmbeddingFunction):
+                def __call__(self, texts):
+                    return embedder.embed_documents(texts)
 
-            embedding_function = chroma_embed_function
+                def name(self):
+                    return embedder_config["model_name"]
+
+            embedding_function = MyEmbeddingFunction()
 
         if store_type == "chroma":
             if embedding_function:

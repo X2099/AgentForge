@@ -28,9 +28,6 @@ class EmbedderFactory:
         elif embedder_type in ["local", "sentence_transformer"]:
             return LocalEmbedder(**kwargs)
         elif embedder_type in ["bge", "bge_zh"]:
-            return LocalEmbedder(
-                model_name="BAAI/bge-small-zh-v1.5",
-                **kwargs
-            )
+            return LocalEmbedder(**kwargs)
         else:
             raise ValueError(f"不支持的嵌入器类型: {embedder_type}")

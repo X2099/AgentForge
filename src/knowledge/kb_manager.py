@@ -9,6 +9,7 @@ import yaml
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
+from .document_loaders import Document
 from .knowledge_base import KnowledgeBase
 
 
