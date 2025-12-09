@@ -13,7 +13,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from src.core.orchestrator import GraphOrchestrator
-from src.core.graphs.agent_graph import AgentGraph
+from src.core.graphs.base_graph import AgentGraph
 from src.core.nodes.llm_nodes import LLMNode
 from src.core.nodes.tool_nodes import ToolExecutorNode
 from src.core.nodes.control_nodes import RouterNode

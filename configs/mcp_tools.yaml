@@ -1,0 +1,60 @@
+mcp:
+  protocol_version: "2024-11-05"
+  server_info:
+    name: "ai-agent-tools"
+    version: "1.0.0"
+    description: "AI Agent工具集"
+
+server:
+  transport: "http"  # 或 "http"
+  stdio: {}
+  http:
+    host: "localhost"
+    port: 8000
+    path: "/mcp"
+    timeout: 30
+    cors_enabled: true
+    cors_origins:
+      - "http://localhost:3000"
+      - "http://127.0.0.1:3000"
+
+tools:
+  enabled:
+    - "calculator"
+    - "web_search"
+    - "knowledge_base_search"
+    - "file_reader"
+    - "code_executor"
+
+  calculator: {}
+
+  web_search:
+    api_key: "${GOOGLE_SEARCH_API_KEY}"
+    fallback_to_mock: true
+    default_engine: "auto"
+    max_results: 5
+
+  knowledge_base_search:
+    kb_config_dir: "./configs/knowledge_bases"
+    default_kb: "default"
+    max_results: 5
+
+  file_reader:
+    allowed_dirs:
+      - "./data/documents"
+      - "./uploads"
+    max_file_size_mb: 10
+
+  code_executor:
+    timeout_seconds: 10
+    allowed_modules:
+      - "math"
+      - "datetime"
+      - "json"
+      - "random"
+
+logging:
+  level: "INFO"
+  file: "./logs/mcp_tools.log"
+  max_file_size_mb: 10
+  backup_count: 5
