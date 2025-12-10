@@ -8,45 +8,128 @@ import json
 import yaml
 from typing import Dict, List, Any, Optional
 from pathlib import Path
+from datetime import datetime
+import time
+import logging
 
 from .document_loaders import Document
 from .knowledge_base import KnowledgeBase
+from .kb_database import KnowledgeBaseDatabase
+
+logger = logging.getLogger(__name__)
 
 
 class KnowledgeBaseManager:
     """知识库管理器"""
 
-    def __init__(self, config_dir: str = "./configs/knowledge_bases"):
+    def __init__(self, config_dir: str = "./configs/knowledge_bases", use_database: bool = True):
         """
         初始化知识库管理器
 
         Args:
             config_dir: 配置文件目录
+            use_database: 是否使用数据库存储元数据
         """
         self.config_dir = Path(config_dir)
         self.config_dir.mkdir(parents=True, exist_ok=True)
 
+        self.use_database = use_database
         self.knowledge_bases: Dict[str, KnowledgeBase] = {}
+
+        # 初始化数据库
+        if self.use_database:
+            self.db = KnowledgeBaseDatabase()
+            # 首次运行时从文件系统迁移数据
+            self._migrate_from_filesystem()
+        else:
+            self.db = None
+
         self.load_configs()
 
     def load_configs(self):
         """加载所有知识库配置"""
-        config_files = list(self.config_dir.glob("*.yaml")) + list(self.config_dir.glob("*.json"))
+        if self.use_database and self.db:
+            # 从数据库加载
+            kb_configs = self.db.list_knowledge_bases()
+            for kb_data in kb_configs:
+                try:
+                    # 从full_config字段获取完整配置
+                    config = kb_data.get("full_config", {})
+                    if not config:
+                        # 如果没有完整配置，从数据库字段构建
+                        config = self._build_config_from_db_data(kb_data)
 
-        for config_file in config_files:
-            try:
-                if config_file.suffix == ".yaml":
-                    with open(config_file, 'r', encoding='utf-8') as f:
-                        config = yaml.safe_load(f)
-                else:
-                    with open(config_file, 'r', encoding='utf-8') as f:
-                        config = json.load(f)
+                    kb_name = config.get("name", kb_data["name"])
+                    self.create_knowledge_base(config, load_existing=True)
 
-                kb_name = config.get("name", config_file.stem)
-                self.create_knowledge_base(config, load_existing=True)
+                except Exception as e:
+                    logger.error(f"从数据库加载知识库失败 {kb_data.get('name', 'unknown')}: {str(e)}")
+        else:
+            # 从文件系统加载（向后兼容）
+            config_files = list(self.config_dir.glob("*.yaml")) + list(self.config_dir.glob("*.json"))
 
-            except Exception as e:
-                print(f"加载配置失败 {config_file}: {str(e)}")
+            for config_file in config_files:
+                try:
+                    if config_file.suffix == ".yaml":
+                        with open(config_file, 'r', encoding='utf-8') as f:
+                            config = yaml.safe_load(f)
+                    else:
+                        with open(config_file, 'r', encoding='utf-8') as f:
+                            config = json.load(f)
+
+                    kb_name = config.get("name", config_file.stem)
+                    self.create_knowledge_base(config, load_existing=True)
+
+                except Exception as e:
+                    logger.error(f"加载配置失败 {config_file}: {str(e)}")
+
+    def _migrate_from_filesystem(self):
+        """从文件系统迁移数据到数据库"""
+        if not self.db:
+            return
+
+        try:
+            # 检查是否已经迁移过
+            if self.db.list_knowledge_bases():
+                logger.info("数据库中已有数据，跳过迁移")
+                return
+
+            # 执行迁移
+            if self.db.migrate_from_filesystem(self.config_dir):
+                logger.info("数据迁移完成")
+            else:
+                logger.error("数据迁移失败")
+
+        except Exception as e:
+            logger.error(f"迁移过程出错: {str(e)}")
+
+    def _build_config_from_db_data(self, kb_data: Dict[str, Any]) -> Dict[str, Any]:
+        """从数据库数据构建配置字典"""
+        config = {
+            "name": kb_data["name"],
+            "description": kb_data.get("description", ""),
+            "splitter_type": kb_data.get("splitter_type", "recursive"),
+            "chunk_size": kb_data.get("chunk_size", 500),
+            "chunk_overlap": kb_data.get("chunk_overlap", 50),
+            "embedder": {
+                "embedder_type": kb_data.get("embedder_type", "bge"),
+                "model": kb_data.get("embedder_model", "")
+            },
+            "vector_store": {
+                "store_type": kb_data.get("vector_store_type", "chroma"),
+                "collection_name": kb_data.get("collection_name"),
+                "persist_directory": kb_data.get("persist_directory")
+            }
+        }
+
+        # 添加语义分割配置
+        if kb_data.get("splitter_type") == "semantic":
+            semantic_config = kb_data.get("semantic_config", {})
+            if isinstance(semantic_config, str):
+                semantic_config = json.loads(semantic_config)
+            config.update(semantic_config)
+
+        return config
 
     def create_knowledge_base(self,
                               config: Dict[str, Any],
@@ -85,6 +168,11 @@ class KnowledgeBaseManager:
 
         # 保存配置
         self._save_config(kb_name, config)
+
+        # 保存到数据库
+        if self.use_database and self.db:
+            if not self.db.create_knowledge_base(config):
+                logger.warning(f"保存知识库 {kb_name} 到数据库失败")
 
         return kb
 
@@ -140,6 +228,11 @@ class KnowledgeBaseManager:
         if config_file.exists():
             config_file.unlink()
 
+        # 从数据库删除
+        if self.use_database and self.db:
+            if not self.db.delete_knowledge_base(name):
+                logger.warning(f"从数据库删除知识库 {name} 失败")
+
         # 从内存中移除
         del self.knowledge_bases[name]
 
@@ -169,7 +262,40 @@ class KnowledgeBaseManager:
             raise ValueError(f"知识库 '{kb_name}' 不存在")
 
         kb = self.knowledge_bases[kb_name]
-        return kb.add_documents(file_paths, **kwargs)
+
+        # 记录开始时间
+        start_time = time.time()
+
+        # 执行文档添加
+        stats = kb.add_documents(file_paths, **kwargs)
+
+        # 记录到数据库
+        if self.use_database and self.db:
+            # 更新统计信息
+            self.db.update_statistics(kb_name, {
+                "document_count": stats.get("document_count", 0),
+                "total_chunks": stats.get("total_chunks", 0),
+                "last_updated": datetime.now().isoformat(),
+                "vector_count": stats.get("valid_chunks", 0)
+            })
+
+            # 记录文档操作历史
+            processing_time = time.time() - start_time
+            for file_path in file_paths:
+                file_path_obj = Path(file_path)
+                operation = {
+                    "operation_type": "add",
+                    "file_path": str(file_path),
+                    "file_name": file_path_obj.name,
+                    "file_size": file_path_obj.stat().st_size if file_path_obj.exists() else 0,
+                    "chunk_count": 0,  # 这里可以根据实际处理情况计算
+                    "status": "success" if stats.get("processed_files", 0) > 0 else "failed",
+                    "processing_time": processing_time,
+                    "tokens_processed": 0  # 可以后续扩展
+                }
+                self.db.record_document_operation(kb_name, operation)
+
+        return stats
 
     def search(self,
                kb_name: str,
@@ -192,4 +318,25 @@ class KnowledgeBaseManager:
             raise ValueError(f"知识库 '{kb_name}' 不存在")
 
         kb = self.knowledge_bases[kb_name]
-        return kb.search(query, k, filter_dict)
+
+        # 记录搜索开始时间
+        start_time = time.time()
+
+        # 执行搜索
+        results = kb.search(query, k, filter_dict)
+
+        # 记录搜索历史到数据库
+        if self.use_database and self.db:
+            search_time = time.time() - start_time
+            search_data = {
+                "query_text": query,
+                "result_count": len(results),
+                "search_time": search_time,
+                "search_params": {
+                    "k": k,
+                    "filter_dict": filter_dict
+                }
+            }
+            self.db.record_search(kb_name, search_data)
+
+        return results

@@ -1,0 +1,9 @@
+chunk_overlap: 50
+chunk_size: 500
+embedder:
+  embedder_type: bge
+  model_name: BAAI/bge-small-zh-v1.5
+name: my_knowledge
+vector_store:
+  collection_name: my_knowledge
+  store_type: chroma

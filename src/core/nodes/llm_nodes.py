@@ -11,7 +11,7 @@ from datetime import datetime
 from .base_node import Node, AsyncNode
 from ..state.base_state import AgentState
 from src.llm.llm_client import LLMClient
-from src.llm.config.llm_config import LLMConfig
+from src.config.system_config import SystemConfig
 
 
 class LLMNode(Node):
@@ -28,11 +28,11 @@ class LLMNode(Node):
         # 创建LLM客户端
         if llm_config:
             # 从配置创建
-            config_manager = LLMConfig()
+            config_manager = SystemConfig()
             self.llm_client = config_manager.create_client(**llm_config)
         else:
             # 默认配置
-            config_manager = LLMConfig()
+            config_manager = SystemConfig()
             self.llm_client = config_manager.create_client()
 
         self.system_prompt = system_prompt

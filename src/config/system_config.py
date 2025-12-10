@@ -7,11 +7,11 @@
 import os
 import json
 import yaml
-from typing import Dict, Any, Optional
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 from dotenv import load_dotenv
 import logging
-from ..llm_client import LLMClient
+from src.llm.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 
-class LLMConfig:
+class SystemConfig:
     """LLM配置管理"""
 
     def __init__(self, config_path: Optional[str] = None):
@@ -29,7 +29,7 @@ class LLMConfig:
         Args:
             config_path: 配置文件路径
         """
-        self.config_path = config_path or "./configs/llm_config.yaml"
+        self.config_path = config_path or "./configs/system_config.yaml"
         self.config = self._load_config()
 
     def _load_config(self) -> Dict[str, Any]:
@@ -231,3 +231,23 @@ class LLMConfig:
         except Exception as e:
             logger.error(f"保存配置文件失败: {str(e)}")
             return False
+
+    def get_vector_stores_config(self) -> List[Dict[str, Any]]:
+        """获取向量数据库配置"""
+        vector_stores = self.config.get("vector_stores", [])
+        # 只返回启用的向量数据库
+        return [store for store in vector_stores if store.get("enabled", True)]
+
+    def get_embedders_config(self) -> List[Dict[str, Any]]:
+        """获取嵌入器配置"""
+        embedders = self.config.get("embedders", [])
+        # 只返回启用的嵌入器
+        return [embedder for embedder in embedders if embedder.get("enabled", True)]
+
+    def get_embedder_models(self, embedder_type: str) -> List[Dict[str, Any]]:
+        """获取特定嵌入器类型的模型列表"""
+        embedders = self.get_embedders_config()
+        for embedder in embedders:
+            if embedder.get("type") == embedder_type:
+                return embedder.get("models", [])
+        return []

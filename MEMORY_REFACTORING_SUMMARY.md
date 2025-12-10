@@ -46,7 +46,7 @@ Memory模块已成功重构为基于LangGraph标准的长短期记忆机制！
 
 ```python
 from src.core.agents.langgraph_agent import LangGraphAgentBuilder
-from src.llm.config.llm_config import LLMConfig
+from src.llm.llm_config import LLMConfig
 from src.memory import MemoryManager, MemoryConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
 import sqlite3

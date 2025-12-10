@@ -75,7 +75,7 @@ compiled_graph = graph.compile(checkpointer=checkpointer)
 
 ```python
 from src.core.agents.langgraph_agent import LangGraphAgentBuilder
-from src.llm.config.llm_config import LLMConfig
+from src.llm.llm_config import LLMConfig
 from src.memory import MemoryManager, MemoryConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
 import sqlite3

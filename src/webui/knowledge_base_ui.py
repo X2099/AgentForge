@@ -10,6 +10,7 @@ from ..knowledge.kb_manager import KnowledgeBaseManager
 from .components.kb_sidebar import KnowledgeBaseSidebar
 from .components.kb_overview import KnowledgeBaseOverview
 from .components.kb_creator import KnowledgeBaseCreator
+from .components.kb_uploader import KnowledgeBaseUploader
 from .components.kb_search import KnowledgeBaseSearch
 from .components.kb_config import KnowledgeBaseConfig
 
@@ -22,6 +23,7 @@ class KnowledgeBaseUI:
         self.sidebar = KnowledgeBaseSidebar()
         self.overview = KnowledgeBaseOverview(self.kb_manager)
         self.creator = KnowledgeBaseCreator(self.kb_manager)
+        self.uploader = KnowledgeBaseUploader(self.kb_manager)
         self.search = KnowledgeBaseSearch(self.kb_manager)
         self.config = KnowledgeBaseConfig()
 
@@ -34,9 +36,10 @@ class KnowledgeBaseUI:
         st.title("📚 知识库管理系统")
 
         # 标签页
-        tab1, tab2, tab3, tab4 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "🏠 总览",
             "➕ 创建知识库",
+            "📤 上传文件",
             "🔍 搜索测试",
             "⚙️ 向量配置"
         ])
@@ -48,11 +51,13 @@ class KnowledgeBaseUI:
             self.creator.render()
 
         with tab3:
-            self.search.render()
+            self.uploader.render()
 
         with tab4:
-            self.config.render()
+            self.search.render()
 
+        with tab5:
+            self.config.render()
 
 
 def main():

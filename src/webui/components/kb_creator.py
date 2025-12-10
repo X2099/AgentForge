@@ -12,6 +12,110 @@ class KnowledgeBaseCreator:
 
     def __init__(self, kb_manager):
         self.kb_manager = kb_manager
+        self._vector_store_options = None
+        self._embedder_options = None
+
+    def _get_vector_store_options(self):
+        """获取向量存储选项"""
+        if self._vector_store_options is None:
+            try:
+                import requests
+                from src.webui.chat_ui import BASE_URL
+
+                response = requests.get(f"{BASE_URL}/vector-stores/list", timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    self._vector_store_options = data.get("vector_stores", [])
+                else:
+                    # API调用失败，使用默认选项
+                    self._vector_store_options = [
+                        {"type": "chroma", "name": "ChromaDB (推荐)"},
+                        {"type": "faiss", "name": "FAISS (本地)"},
+                        {"type": "milvus", "name": "Milvus (生产)"}
+                    ]
+            except Exception as e:
+                # 网络错误，使用默认选项
+                self._vector_store_options = [
+                    {"type": "chroma", "name": "ChromaDB (推荐)"},
+                    {"type": "faiss", "name": "FAISS (本地)"},
+                    {"type": "milvus", "name": "Milvus (生产)"}
+                ]
+        return self._vector_store_options
+
+    def _get_embedder_options(self):
+        """获取嵌入器选项"""
+        if self._embedder_options is None:
+            try:
+                import requests
+                from src.webui.chat_ui import BASE_URL
+
+                response = requests.get(f"{BASE_URL}/embedders/list", timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    self._embedder_options = data.get("embedders", [])
+                else:
+                    # API调用失败，使用默认选项
+                    self._embedder_options = [
+                        {
+                            "type": "bge",
+                            "name": "BGE中文模型 (推荐)",
+                            "models": [
+                                {"name": "BAAI/bge-small-zh-v1.5", "description": "小型中文模型"},
+                                {"name": "BAAI/bge-base-zh-v1.5", "description": "基础中文模型"},
+                                {"name": "BAAI/bge-large-zh-v1.5", "description": "大型中文模型"}
+                            ]
+                        },
+                        {
+                            "type": "openai",
+                            "name": "OpenAI Embeddings",
+                            "models": [
+                                {"name": "text-embedding-3-small", "description": "小型模型"},
+                                {"name": "text-embedding-3-large", "description": "大型模型"},
+                                {"name": "text-embedding-ada-002", "description": "经典模型"}
+                            ]
+                        },
+                        {
+                            "type": "local",
+                            "name": "本地 Sentence Transformers",
+                            "models": [
+                                {"name": "sentence-transformers/all-MiniLM-L6-v2", "description": "通用小型模型"},
+                                {"name": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                                 "description": "多语言模型"}
+                            ]
+                        }
+                    ]
+            except Exception as e:
+                # 网络错误，使用默认选项
+                self._embedder_options = [
+                    {
+                        "type": "bge",
+                        "name": "BGE中文模型 (推荐)",
+                        "models": [
+                            {"name": "BAAI/bge-small-zh-v1.5", "description": "小型中文模型"},
+                            {"name": "BAAI/bge-base-zh-v1.5", "description": "基础中文模型"},
+                            {"name": "BAAI/bge-large-zh-v1.5", "description": "大型中文模型"}
+                        ]
+                    },
+                    {
+                        "type": "openai",
+                        "name": "OpenAI Embeddings",
+                        "models": [
+                            {"name": "text-embedding-3-small", "description": "小型模型"},
+                            {"name": "text-embedding-3-large", "description": "大型模型"},
+                            {"name": "text-embedding-ada-002", "description": "经典模型"}
+                        ]
+                    },
+                    {
+                        "type": "local",
+                        "name": "本地 Sentence Transformers",
+                        "models": [
+                            {"name": "sentence-transformers/all-MiniLM-L6-v2", "description": "通用小型模型"},
+                            {"name": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                             "description": "多语言模型"}
+                        ]
+                    }
+                ]
+        return self._embedder_options
 
     def render(self):
         """渲染创建知识库页面"""
@@ -33,9 +137,6 @@ class KnowledgeBaseCreator:
         # 文本处理配置
         self._render_text_config()
 
-        # 文件上传区域
-        self._render_file_upload(kb_name)
-
         # 创建按钮
         self._render_create_button(kb_name, kb_description)
 
@@ -46,26 +147,12 @@ class KnowledgeBaseCreator:
         vector_config_col1, vector_config_col2 = st.columns(2)
 
         with vector_config_col1:
-            # 向量存储类型
+            # 获取向量存储类型列表
+            vector_store_options = self._get_vector_store_options()
             vector_store_type = st.selectbox(
                 "向量数据库",
-                ["chroma", "faiss", "milvus"],
-                format_func=lambda x: {
-                    "chroma": "ChromaDB (推荐)",
-                    "faiss": "FAISS (本地)",
-                    "milvus": "Milvus (生产)"
-                }[x]
-            )
-
-            # 嵌入模型配置
-            embedder_type = st.selectbox(
-                "嵌入模型",
-                ["openai", "local", "bge"],
-                format_func=lambda x: {
-                    "openai": "OpenAI Embeddings",
-                    "local": "本地 Sentence Transformers",
-                    "bge": "BGE中文模型"
-                }[x]
+                options=[opt["type"] for opt in vector_store_options],
+                format_func=lambda x: next((opt["name"] for opt in vector_store_options if opt["type"] == x), x)
             )
 
         with vector_config_col2:
@@ -94,7 +181,6 @@ class KnowledgeBaseCreator:
         # 存储配置到session state
         st.session_state.vector_config = {
             'store_type': vector_store_type,
-            'embedder_type': embedder_type,
             'persist_dir': locals().get('persist_dir'),
             'collection_name': locals().get('collection_name'),
             'host': locals().get('host'),
@@ -110,43 +196,69 @@ class KnowledgeBaseCreator:
         embed_config_col1, embed_config_col2 = st.columns(2)
 
         with embed_config_col1:
-            embedder_type = st.session_state.vector_config.get('embedder_type', 'bge')
+            # 获取嵌入器类型选项
+            embedder_options = self._get_embedder_options()
+            embedder_type = st.selectbox(
+                "嵌入模型类型",
+                options=[opt["type"] for opt in embedder_options],
+                format_func=lambda x: next((opt["name"] for opt in embedder_options if opt["type"] == x), x),
+                help="选择要使用的嵌入模型类型"
+            )
 
-            if embedder_type == "openai":
-                openai_key = st.text_input("OpenAI API Key", type="password")
+            # 获取当前选中嵌入器的模型列表
+            embedder_options = self._get_embedder_options()
+            current_embedder = next((opt for opt in embedder_options if opt["type"] == embedder_type), None)
+
+            if current_embedder and "models" in current_embedder:
+                # 从配置中获取模型选项
+                model_options = current_embedder["models"]
+                model_names = [model["name"] for model in model_options]
+
+                # 添加自定义选项（如果需要）
+                if embedder_type == "local":
+                    model_names.append("自定义模型路径")
+
                 model_name = st.selectbox(
                     "模型",
-                    ["text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"]
-                )
-                dimensions = st.number_input(
-                    "维度",
-                    min_value=256,
-                    max_value=3072,
-                    value=1536,
-                    help="嵌入向量维度"
+                    model_names,
+                    format_func=lambda x: next(
+                        (f'{model["name"]} - {model["description"]}' for model in model_options if model["name"] == x),
+                        x),
+                    help="选择要使用的具体模型"
                 )
 
-            elif embedder_type == "local":
-                model_name = st.selectbox(
-                    "模型名称",
-                    [
-                        "sentence-transformers/all-MiniLM-L6-v2",
-                        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-                        "自定义模型路径"
-                    ]
-                )
+                # 如果是自定义模型路径，显示输入框
                 if model_name == "自定义模型路径":
                     model_name = st.text_input("模型路径")
 
-            elif embedder_type == "bge":
-                model_name = st.selectbox(
-                    "BGE模型",
-                    [
-                        "BAAI/bge-small-zh-v1.5",
-                        "BAAI/bge-base-zh-v1.5",
-                        "BAAI/bge-large-zh-v1.5"
-                    ]
-                )
+                # 显示模型维度信息（如果可用）
+                selected_model_info = next((model for model in model_options if model["name"] == model_name), None)
+                if selected_model_info and "dimensions" in selected_model_info:
+                    st.info(f"📏 向量维度: {selected_model_info['dimensions']}")
+
+            else:
+                # 回退到默认行为（如果API数据不完整）
+                if embedder_type == "openai":
+                    model_name = st.selectbox("模型", ["text-embedding-3-small", "text-embedding-3-large",
+                                                       "text-embedding-ada-002"])
+                    dimensions = st.number_input("维度", min_value=256, max_value=3072, value=1536)
+                elif embedder_type == "local":
+                    model_name = st.selectbox("模型名称", ["sentence-transformers/all-MiniLM-L6-v2",
+                                                           "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                                                           "自定义模型路径"])
+                    if model_name == "自定义模型路径":
+                        model_name = st.text_input("模型路径")
+                elif embedder_type == "bge":
+                    model_name = st.selectbox("BGE模型", ["BAAI/bge-small-zh-v1.5", "BAAI/bge-base-zh-v1.5",
+                                                          "BAAI/bge-large-zh-v1.5"])
+                    normalize_embeddings = st.checkbox("归一化向量", value=True)
+
+            # OpenAI特有的配置
+            if embedder_type == "openai":
+                openai_key = st.text_input("OpenAI API Key", type="password")
+
+            # BGE特有的配置
+            if embedder_type == "bge":
                 normalize_embeddings = st.checkbox("归一化向量", value=True)
 
         with embed_config_col2:
@@ -232,129 +344,60 @@ class KnowledgeBaseCreator:
             'semantic_model': locals().get('semantic_model')
         }
 
-    def _render_file_upload(self, kb_name):
-        """渲染文件上传区域"""
-        st.subheader("📁 上传文档")
-
-        upload_method = st.radio(
-            "上传方式",
-            ["本地文件上传", "文件夹批量导入", "网络链接导入"]
-        )
-
-        file_paths = []
-
-        if upload_method == "本地文件上传":
-            uploaded_files = st.file_uploader(
-                "选择文档文件",
-                type=["pdf", "txt", "md", "docx", "html", "csv"],
-                accept_multiple_files=True,
-                help="支持PDF、TXT、Markdown、Word、HTML、CSV格式"
-            )
-
-            if uploaded_files:
-                # 显示文件列表
-                st.write("已选择文件:")
-                for uploaded_file in uploaded_files:
-                    st.write(f"- {uploaded_file.name} ({uploaded_file.size / 1024:.1f} KB)")
-
-                # 保存文件
-                upload_dir = Path(f"./uploads/{kb_name}")
-                upload_dir.mkdir(parents=True, exist_ok=True)
-
-                for uploaded_file in uploaded_files:
-                    file_path = upload_dir / uploaded_file.name
-                    with open(file_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-                    file_paths.append(str(file_path))
-
-        elif upload_method == "文件夹批量导入":
-            folder_path = st.text_input(
-                "文件夹路径",
-                value="./data/documents",
-                help="包含文档文件的文件夹路径"
-            )
-
-            if st.button("扫描文件夹"):
-                folder = Path(folder_path)
-                if folder.exists() and folder.is_dir():
-                    # 查找支持的文档文件
-                    supported_extensions = ['.pdf', '.txt', '.md', '.docx', '.html', '.csv']
-                    for ext in supported_extensions:
-                        for file in folder.glob(f"**/*{ext}"):
-                            file_paths.append(str(file))
-
-                    st.success(f"找到 {len(file_paths)} 个文档文件")
-
-                    # 显示文件列表
-                    with st.expander("查看文件列表"):
-                        for fp in file_paths[:20]:  # 限制显示数量
-                            st.write(f"- {Path(fp).name}")
-                        if len(file_paths) > 20:
-                            st.write(f"... 还有 {len(file_paths) - 20} 个文件")
-                else:
-                    st.error("文件夹不存在或路径无效")
-
-        elif upload_method == "网络链接导入":
-            urls = st.text_area(
-                "输入URL列表（每行一个）",
-                height=100,
-                help="输入文档的URL链接，每行一个"
-            )
-
-            if urls:
-                url_list = [url.strip() for url in urls.split('\n') if url.strip()]
-                file_paths.extend(url_list)
-                st.info(f"添加了 {len(url_list)} 个网络链接")
-
-        # 存储文件路径到session state
-        st.session_state.file_paths = file_paths
-
     def _render_create_button(self, kb_name, kb_description):
         """渲染创建按钮"""
         st.divider()
 
-        file_paths = st.session_state.get('file_paths', [])
-
-        if st.button("🚀 创建知识库", type="primary", disabled=not file_paths):
+        if st.button("🚀 创建知识库", type="primary"):
             with st.spinner("正在创建知识库..."):
                 try:
                     # 构建配置
                     kb_config = self._build_kb_config(kb_name, kb_description)
 
-                    # 创建知识库
-                    kb = self.kb_manager.create_knowledge_base(kb_config)
+                    # 调用API创建空的知识库
+                    import requests
+                    from src.webui.chat_ui import BASE_URL
 
-                    # 添加文档
-                    stats = self.kb_manager.bulk_add_documents(
-                        kb_name=kb_name,
-                        file_paths=file_paths,
-                        show_progress=True
-                    )
+                    payload = {
+                        "kb_name": kb_name,
+                        "chunk_size": kb_config["chunk_size"],
+                        "chunk_overlap": kb_config["chunk_overlap"]
+                        # 注意：不包含file_paths，创建空的知识库
+                    }
 
-                    # 显示结果
-                    st.success("🎉 知识库创建成功！")
+                    response = requests.post(f"{BASE_URL}/knowledge_base/create", json=payload, timeout=60)
 
-                    # 显示统计信息
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("处理文件", stats["processed_files"])
-                    with col2:
-                        st.metric("失败文件", stats["failed_files"])
-                    with col3:
-                        st.metric("总文本块", stats["total_chunks"])
-                    with col4:
-                        st.metric("有效块", stats["valid_chunks"])
+                    if response.status_code == 200:
+                        result = response.json()
 
-                    # 显示详细结果
-                    with st.expander("📊 详细处理结果"):
-                        st.json(stats)
+                        # 显示结果
+                        st.success("🎉 知识库创建成功！")
+                        st.info("💡 知识库已创建完成，您可以在'上传文件'页面中添加文档。")
 
-                    # 保存配置
-                    self._save_kb_config(kb_config)
+                        # 显示知识库信息
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("知识库名称", result["kb_name"])
+                        with col2:
+                            st.metric("初始文档数", result["document_count"])
 
+                        # 保存配置
+                        self._save_kb_config(kb_config)
+
+                        # 刷新知识库列表
+                        st.rerun()
+
+                    else:
+                        st.error(f"创建失败 (状态码: {response.status_code})")
+                        st.caption(f"错误详情: {response.text}")
+
+                except requests.exceptions.Timeout:
+                    st.error("⏰ 创建超时，请稍后重试")
+                except requests.exceptions.ConnectionError:
+                    st.error("🌐 网络连接失败，请检查服务器是否运行")
                 except Exception as e:
-                    st.error(f"创建失败: {str(e)}")
-                    st.exception(e)
+                    st.error(f"❌ 创建出错: {str(e)}")
+                    st.caption("请检查网络连接或联系管理员")
 
     def _build_kb_config(self, kb_name, kb_description):
         """构建知识库配置"""

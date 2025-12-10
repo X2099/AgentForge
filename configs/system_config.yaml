@@ -1,0 +1,114 @@
+default_provider: "deepseek-chat"
+default_model: "deepseek-chat"
+
+providers:
+  deepseek:
+    api_key: "${DEEPSEEK_API_KEY}"
+    base_url: null
+    model_name: "deepseek-chat"
+    timeout: 30
+    max_retries: 3
+    temperature: 0.7
+    max_tokens: 2000
+
+  openai:
+    api_key: "${OPENAI_API_KEY}"
+    base_url: bull
+    model_name: "gpt-5"
+    timeout: 30
+    max_retries: 3
+    temperature: 0.7
+    max_tokens: 2000
+
+  anthropic:
+    api_key: "${ANTHROPIC_API_KEY}"
+    base_url: null
+    default_model: "claude-3-sonnet"
+    timeout: 30
+    max_retries: 3
+    temperature: 0.7
+    max_tokens: 4000
+
+  local:
+    default_model: "Qwen/Qwen2.5-7B-Instruct"
+    device: "auto"
+    load_in_8bit: false
+    load_in_4bit: false
+    temperature: 0.7
+    max_tokens: 512
+
+rate_limiting:
+  enabled: true
+  requests_per_minute: 60
+  tokens_per_minute: 60000
+
+caching:
+  enabled: true
+  ttl_seconds: 300
+  max_size: 100
+
+logging:
+  level: "INFO"
+  log_file: "./logs/llm.log"
+  max_file_size_mb: 10
+  backup_count: 5
+
+# 向量数据库配置
+vector_stores:
+  - type: "chroma"
+    name: "Chroma向量数据库"
+    description: "轻量级开源向量数据库，支持本地持久化存储，内置多种相似度算法，适合开发和测试环境"
+    enabled: true
+  - type: "faiss"
+    name: "Facebook FAISS"
+    description: "Facebook开源的高效相似度搜索库，支持多种索引算法(IVF、HNSW、PQ等)，适合大规模向量检索"
+    enabled: true
+  - type: "milvus"
+    name: "Milvus向量数据库"
+    description: "开源云原生向量数据库，支持分布式部署、多种索引类型和高级搜索功能，适合生产环境"
+    enabled: false
+
+# 嵌入模型配置
+embedders:
+  - type: "bge"
+    name: "智源BGE嵌入模型系列"
+    description: "智源研究院开发的BGE(BAAI General Embedding)模型，专为中文优化"
+    enabled: true
+    models:
+      - name: "BAAI/bge-small-zh-v1.5"
+        description: "小型中文模型，384维向量，适合轻量级应用"
+        dimensions: 384
+      - name: "BAAI/bge-base-zh-v1.5"
+        description: "基础中文模型，768维向量，性能与效率平衡"
+        dimensions: 768
+      - name: "BAAI/bge-large-zh-v1.5"
+        description: "大型中文模型，1024维向量，最佳性能表现"
+        dimensions: 1024
+  - type: "openai"
+    name: "OpenAI文本嵌入API"
+    description: "OpenAI官方文本嵌入服务，支持多种模型和尺寸"
+    enabled: true
+    models:
+      - name: "text-embedding-3-small"
+        description: "小型高效模型，1536维向量，性价比最优"
+        dimensions: 1536
+      - name: "text-embedding-3-large"
+        description: "大型高性能模型，3072维向量，最佳质量"
+        dimensions: 3072
+      - name: "text-embedding-ada-002"
+        description: "经典稳定模型，1536维向量，广泛兼容"
+        dimensions: 1536
+  - type: "local"
+    name: "HuggingFace Sentence Transformers"
+    description: "基于HuggingFace Transformers的句子嵌入模型库"
+    enabled: true
+    models:
+      - name: "sentence-transformers/all-MiniLM-L6-v2"
+        description: "通用小型模型，384维向量，英语优化"
+        dimensions: 384
+      - name: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+        description: "多语言模型，384维向量，支持50+语言"
+        dimensions: 384
+      - name: "sentence-transformers/all-MiniLM-L12-v2"
+        description: "增强版通用模型，384维向量，更好性能"
+        dimensions: 384

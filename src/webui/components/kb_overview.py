@@ -70,14 +70,23 @@ class KnowledgeBaseOverview:
 
             col1, col2, col3 = st.columns(3)
             with col1:
-                if st.button("📊 查看详情", key="view_details"):
+                if st.button("📊 查看详情", key=f"view_details_{selected_kb}"):
                     self._show_kb_details(selected_kb)
             with col2:
-                if st.button("🔄 重新索引", key="reindex"):
+                if st.button("🔄 重新索引", key=f"reindex_{selected_kb}"):
                     self._reindex_knowledge_base(selected_kb)
             with col3:
-                if st.button("🗑️ 删除", key="delete_kb"):
+                # 使用session_state来跟踪删除状态，避免st.button的瞬时性问题
+                delete_action_key = f"delete_action_{selected_kb}"
+                if st.button("🗑️ 删除", key=f"delete_btn_{selected_kb}"):
+                    st.info(f"🔍 调试: 删除按钮被点击 for '{selected_kb}'")
+                    st.session_state[delete_action_key] = True
+
+                # 检查是否需要显示删除确认界面
+                if st.session_state.get(delete_action_key, False):
+                    st.info(f"🔍 调试: 显示删除确认界面 for '{selected_kb}'")
                     self._delete_knowledge_base(selected_kb)
+                    # 注意：删除成功后会在_execute_delete中清理这个状态
 
     def _show_kb_details(self, kb_name: str):
         """显示知识库详情"""
@@ -117,10 +126,107 @@ class KnowledgeBaseOverview:
 
     def _delete_knowledge_base(self, kb_name: str):
         """删除知识库"""
-        if st.checkbox(f"⚠️ 确认删除知识库 '{kb_name}'？此操作不可恢复！"):
-            try:
-                self.kb_manager.delete_knowledge_base(kb_name, delete_data=True)
-                st.success(f"✅ 知识库 '{kb_name}' 已删除")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ 删除失败: {str(e)}")
+        st.warning(f"⚠️ 删除知识库 '{kb_name}' 将永久删除所有相关数据，此操作不可恢复！")
+
+        # 使用session_state来跟踪删除状态
+        delete_state_key = f"delete_state_{kb_name}"
+        confirm_text_key = f"confirm_text_{kb_name}"
+        delete_data_key = f"delete_data_{kb_name}"
+
+        # 初始化session_state
+        if delete_state_key not in st.session_state:
+            st.session_state[delete_state_key] = False
+        if confirm_text_key not in st.session_state:
+            st.session_state[confirm_text_key] = ""
+        if delete_data_key not in st.session_state:
+            st.session_state[delete_data_key] = True
+
+        # 使用form来收集输入
+        with st.form(key=f"delete_form_{kb_name}"):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.session_state[delete_data_key] = st.checkbox(
+                    "同时删除向量数据",
+                    value=st.session_state[delete_data_key],
+                    help="删除向量数据库中的所有向量数据"
+                )
+
+            with col2:
+                st.session_state[confirm_text_key] = st.text_input(
+                    "输入知识库名称确认删除",
+                    value=st.session_state[confirm_text_key],
+                    placeholder=f"输入 '{kb_name}'",
+                    help="输入知识库名称以确认删除操作"
+                )
+
+            # 提交按钮
+            submitted = st.form_submit_button(
+                "🗑️ 确认删除",
+                type="primary",
+                use_container_width=True
+            )
+
+            if submitted:
+                # 表单提交时设置状态
+                st.session_state[delete_state_key] = True
+
+        # 在表单外面检查和处理删除逻辑
+        if st.session_state[delete_state_key]:
+            confirm_text = st.session_state[confirm_text_key]
+            delete_data = st.session_state[delete_data_key]
+
+            st.info(
+                f"🔍 调试: 处理删除请求 - kb_name='{kb_name}', confirm_text='{confirm_text}', delete_data={delete_data}")
+
+            if confirm_text.strip() != kb_name:
+                st.error("❌ 确认文本不匹配，请输入正确的知识库名称")
+                # 重置状态，允许重新尝试
+                st.session_state[delete_state_key] = False
+            else:
+                st.success("🔍 调试: 验证通过，开始执行删除")
+                # 验证通过，执行删除
+                self._execute_delete(kb_name, delete_data)
+                # 删除成功后清理状态
+                self._cleanup_delete_state(kb_name)
+
+    def _cleanup_delete_state(self, kb_name: str):
+        """清理删除相关的session_state"""
+        delete_state_key = f"delete_state_{kb_name}"
+        confirm_text_key = f"confirm_text_{kb_name}"
+        delete_data_key = f"delete_data_{kb_name}"
+        delete_action_key = f"delete_action_{kb_name}"
+
+        # 清理所有相关的session_state
+        for key in [delete_state_key, confirm_text_key, delete_data_key, delete_action_key]:
+            if key in st.session_state:
+                del st.session_state[key]
+
+    def _execute_delete(self, kb_name: str, delete_data: bool):
+        """执行删除操作"""
+        try:
+            import requests
+            from ..chat_ui import BASE_URL
+
+            with st.spinner("🗑️ 正在删除知识库..."):
+                # 调用删除API
+                params = {"delete_data": delete_data}
+                response = requests.delete(f"{BASE_URL}/knowledge_base/{kb_name}", params=params, timeout=30)
+
+                if response.status_code == 200:
+                    result = response.json()
+                    st.success(f"✅ {result['message']}")
+
+                    # 刷新页面
+                    st.rerun()
+                else:
+                    st.error(f"❌ 删除失败 (状态码: {response.status_code})")
+                    st.caption(f"错误详情: {response.text}")
+
+        except requests.exceptions.Timeout:
+            st.error("⏰ 删除超时，请稍后重试")
+        except requests.exceptions.ConnectionError:
+            st.error("🌐 无法连接到API服务器，请确保服务器正在运行")
+        except Exception as e:
+            st.error(f"❌ 删除出错: {str(e)}")
+            st.caption("请检查网络连接或联系管理员")

@@ -4,9 +4,8 @@
 @Time    : 2025/12/9 12:27
 @Desc    : 基于LangGraph标准的Agent构建器
 """
-from typing import Dict, Any, List, Optional, Callable, Sequence
+from typing import Dict, Any, List, Optional
 from langgraph.graph import StateGraph, END, START
-from langgraph.graph.message import add_messages
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
 from langchain_core.tools import BaseTool
@@ -15,7 +14,7 @@ from ..graphs.base_graph import AgentGraph
 from ..state.base_state import AgentState
 from ..nodes.tool_nodes import create_tool_executor_node
 from ...llm.llm_client import LLMClient
-from ...llm.config.llm_config import LLMConfig
+from src.config.system_config import SystemConfig
 from ...tools.tool_manager import ToolManager, get_tool_manager
 from ...memory import MemoryManager, create_memory_retrieval_node, create_memory_truncation_node
 
@@ -75,7 +74,7 @@ class LangGraphAgentBuilder(AgentGraph):
         if llm_client:
             self.llm_client = llm_client
         else:
-            config_manager = LLMConfig()
+            config_manager = SystemConfig()
             self.llm_client = config_manager.create_client(**(llm_config or {}))
         
         # 记忆管理器
