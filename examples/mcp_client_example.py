@@ -2,7 +2,7 @@
 """
 @File    : mcp_client_example.py
 @Time    : 2025/12/9 12:02
-@Desc    : 
+@Desc    :
 """
 import asyncio
 import sys

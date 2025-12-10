@@ -15,7 +15,8 @@ import sqlite3
 
 from .langgraph_agent import LangGraphAgentBuilder
 from ..orchestrator import GraphOrchestrator
-from ...memory.langgraph_memory import LangGraphMemoryStore, MemoryConfig
+from ...memory import MemoryManager, MemoryConfig
+from ...memory import MemoryManager, MemoryConfig
 
 
 class AgentManager:
@@ -35,7 +36,11 @@ class AgentManager:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.memory_config = memory_config or MemoryConfig()
-        self.memory_store = LangGraphMemoryStore(self.memory_config)
+        # 如果配置中没有checkpointer，使用默认的MemorySaver
+        if self.memory_config.checkpointer is None:
+            from langgraph.checkpoint.memory import MemorySaver
+            self.memory_config.checkpointer = MemorySaver()
+        self.memory_manager = MemoryManager(self.memory_config)
 
         # 活跃智能体
         self.active_agents: Dict[str, Dict[str, Any]] = {}
@@ -191,30 +196,42 @@ class AgentManager:
     async def start_agent_session(self,
                                   agent_id: str,
                                   user_id: Optional[str] = None,
-                                  initial_state: Optional[Dict[str, Any]] = None) -> str:
+                                  initial_state: Optional[Dict[str, Any]] = None,
+                                  thread_id: Optional[str] = None) -> str:
         """启动智能体会话"""
+        from langchain_core.messages import HumanMessage
+        
         # 构建智能体
         builder = self.build_agent(agent_id)
 
-        # 创建检查点保存器
-        checkpointer = SqliteSaver.from_conn(
-            sqlite3.connect(f"./data/agents/{agent_id}_sessions.db"),
-            table_name="checkpoints"
-        )
+        # 创建检查点保存器（用于状态持久化）
+        import os
+        os.makedirs("./data/agents", exist_ok=True)
+        conn = sqlite3.connect(f"./data/agents/{agent_id}_sessions.db")
+        checkpointer = SqliteSaver.from_conn(conn, table_name="checkpoints")
 
-        # 编译智能体
+        # 编译智能体（使用checkpointer）
         compiled_agent = builder.compile(checkpointer=checkpointer)
 
-        # 生成会话ID
+        # 生成会话ID和thread_id
         session_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        thread_id = thread_id or session_id
 
-        # 初始化状态
+        # 初始化状态（使用LangGraph标准格式）
         state = {
+            "thread_id": thread_id,
             "session_id": session_id,
             "user_id": user_id,
-            "agent_id": agent_id,
             "messages": [],
-            "started_at": datetime.now().isoformat(),
+            "current_step": "start",
+            "next_node": None,
+            "agent_type": "default",
+            "agent_role": "assistant",
+            "available_tools": [],
+            "should_continue": True,
+            "max_iterations": builder.max_iterations,
+            "iteration_count": 0,
+            "retry_count": 0,
             **(initial_state or {})
         }
 
@@ -256,23 +273,23 @@ class AgentManager:
         if session_id not in self.active_agents:
             raise ValueError(f"Session not found: {session_id}")
 
+        from langchain_core.messages import HumanMessage
+        
         agent_info = self.active_agents[session_id]
         compiled_agent = agent_info["compiled_agent"]
-        state = agent_info["state"]
+        thread_id = agent_info["state"].get("thread_id", session_id)
 
-        # 更新消息
-        state["messages"].append({
-            "role": "user",
-            "content": message,
-            "timestamp": datetime.now().isoformat()
-        })
+        # 准备输入（使用LangGraph标准格式）
+        input_state = {
+            "messages": [HumanMessage(content=message)]
+        }
 
-        # 执行智能体
-        config = config or {"configurable": {"thread_id": session_id}}
+        # 执行智能体（使用checkpointer，通过config传递thread_id）
+        config = config or {"configurable": {"thread_id": thread_id}}
 
         try:
             result = await compiled_agent.ainvoke(
-                state,
+                input_state,
                 config=config
             )
 
@@ -280,16 +297,19 @@ class AgentManager:
             agent_info["state"] = result
             agent_info["message_count"] += 1
 
-            # 提取响应
-            response = result.get("final_response", "") or result.get("llm_response", {}).get("content", "")
-
-            # 添加助手消息
-            if response:
-                result["messages"].append({
-                    "role": "assistant",
-                    "content": response,
-                    "timestamp": datetime.now().isoformat()
-                })
+            # 提取响应（从messages中提取最后一条AI消息）
+            response = ""
+            messages = result.get("messages", [])
+            if messages:
+                last_msg = messages[-1]
+                if hasattr(last_msg, "content"):
+                    response = last_msg.content
+                elif isinstance(last_msg, dict):
+                    response = last_msg.get("content", "")
+            
+            # 如果没有响应，尝试从其他字段提取
+            if not response:
+                response = result.get("final_response", "") or result.get("answer", "") or result.get("response", "")
 
             return {
                 "session_id": session_id,

@@ -155,10 +155,10 @@ class LLMConfig:
                       model: Optional[str] = None,
                       **kwargs) -> "LLMClient":
         """
-        创建LLM客户端
+        创建LLM客户端（基于LangChain）
 
         Args:
-            provider: 提供商类型
+            provider: 提供商类型 (openai, anthropic)
             model: 模型名称
             **kwargs: 其他参数
 
@@ -175,20 +175,18 @@ class LLMConfig:
         provider_config = self.get_provider_config(provider)
 
         # 合并配置
-        client_config = {**provider_config, **kwargs, "provider_type": provider, "model_name": model}
-
-        # 添加提供商类型和模型名称
-
-        # 添加速率限制
-        rate_limit_config = self.get_rate_limiting_config()
-        if rate_limit_config:
-            client_config["rate_limit"] = rate_limit_config
+        client_config = {
+            "provider_type": provider,
+            "model_name": model,
+            **provider_config,
+            **kwargs
+        }
 
         # 从环境变量读取API密钥
         if "api_key" in client_config and client_config["api_key"]:
-            if client_config["api_key"].startswith("${") and client_config["api_key"].endswith("}"):
+            if isinstance(client_config["api_key"], str) and client_config["api_key"].startswith("${") and client_config["api_key"].endswith("}"):
                 env_var = client_config["api_key"][2:-1]
-                client_config["api_key"] = os.getenv(env_var)
+                client_config["api_key"] = os.getenv(env_var, client_config["api_key"])
 
         # 创建客户端
         return LLMClient(**client_config)

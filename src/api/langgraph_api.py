@@ -12,6 +12,7 @@ import uvicorn
 
 from ..workflows.rag_workflow import create_rag_workflow
 from ..workflows.conversation_workflow import create_conversation_workflow
+from langchain_core.messages import HumanMessage, AIMessage
 from ..knowledge.kb_manager import KnowledgeBaseManager
 from ..llm.config.llm_config import LLMConfig
 from ..tools.transports import TransportType
@@ -38,13 +39,14 @@ mcp_client = MCPClient(
 
 
 class ChatRequest(BaseModel):
-    """聊天请求（对标Langchain-Chatchat）"""
+    """聊天请求"""
     query: str
     conversation_id: Optional[str] = None
     history: Optional[List[Dict[str, Any]]] = None
     stream: bool = False
     knowledge_base_name: Optional[str] = "default"
     use_knowledge_base: bool = True
+    tools: Optional[List[str]] = None  # 选中的工具名称列表
 
 
 class ChatResponse(BaseModel):
@@ -101,51 +103,116 @@ async def health_check():
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    """聊天接口（对标Langchain-Chatchat的对话接口）"""
+    """聊天接口"""
     try:
+        from langchain_core.messages import HumanMessage
+
         # 获取知识库
         kb = None
         if request.use_knowledge_base:
             kb = knowledge_base_manager.get_knowledge_base(request.knowledge_base_name)
 
-        # 获取LLM
-        llm = llm_config.create_client()
+        # 获取LLM客户端
+        llm_client = llm_config.create_client()
+
+        # 获取选中的工具
+        selected_tools = None
+        if request.tools:
+            from ..tools.tool_manager import get_tool_manager
+            tool_manager = get_tool_manager()
+            selected_tools = []
+            for tool_name in request.tools:
+                tool = tool_manager.get_tool(tool_name)
+                if tool:
+                    selected_tools.append(tool)
 
         # 创建工作流
         if request.use_knowledge_base and kb:
-            # 使用RAG工作流
-            workflow = create_rag_workflow(kb)
-            initial_state = {"query": request.query}
+            # 使用RAG工作流（暂时不支持工具）
+            workflow = create_rag_workflow(llm_client, kb)
+            # 准备初始状态
+            initial_state = {
+                "messages": [HumanMessage(content=request.query)],
+                "query": request.query,
+                "thread_id": request.conversation_id or "default",
+                "session_id": request.conversation_id,
+                "current_step": "start",
+                "next_node": None,
+                "documents": [],
+                "context": None,
+                "answer": None,
+                "sources": []
+            }
         else:
             # 使用普通对话工作流
-            workflow = create_conversation_workflow(llm, knowledge_base=kb)
+            workflow = create_conversation_workflow(llm_client, knowledge_base=kb, tools=selected_tools)
 
-            # 准备消息
+            # 准备消息（转换为LangChain格式）
             messages = []
             if request.history:
-                messages.extend(request.history)
-            messages.append({"role": "user", "content": request.query})
+                for msg in request.history:
+                    role = msg.get("role", "user")
+                    content = msg.get("content", "")
+                    if role == "user":
+                        messages.append(HumanMessage(content=content))
+                    elif role == "assistant":
+                        from langchain_core.messages import AIMessage
+                        messages.append(AIMessage(content=content))
+            
+            # 添加当前用户消息
+            messages.append(HumanMessage(content=request.query))
 
             initial_state = {
                 "messages": messages,
                 "query": request.query,
-                "knowledge_base_enabled": request.use_knowledge_base
+                "thread_id": request.conversation_id or "default",
+                "session_id": request.conversation_id,
+                "current_step": "start",
+                "next_node": None,
+                "knowledge_base_enabled": request.use_knowledge_base,
+                "retrieved_context": None,
+                "response": None
             }
 
         # 执行工作流
         result = await workflow.ainvoke(initial_state)
 
+        # 提取响应
+        response_text = result.get("answer") or result.get("response", "")
+        if not response_text:
+            # 从messages中提取最后一条AI消息
+            messages = result.get("messages", [])
+            if messages:
+                last_msg = messages[-1]
+                if hasattr(last_msg, "content"):
+                    response_text = last_msg.content
+                elif isinstance(last_msg, dict):
+                    response_text = last_msg.get("content", "")
+
+        # 格式化历史消息
+        history = []
+        for msg in result.get("messages", []):
+            if hasattr(msg, "content"):
+                history.append({
+                    "role": "assistant" if hasattr(msg, "type") and msg.type == "ai" else "user",
+                    "content": msg.content
+                })
+            elif isinstance(msg, dict):
+                history.append(msg)
+
         # 生成响应
         response = ChatResponse(
-            response=result.get("answer") or result.get("response", ""),
+            response=response_text or "未收到响应",
             conversation_id=request.conversation_id or "new_conversation",
-            history=result.get("messages", []),
+            history=history,
             sources=result.get("sources")
         )
 
         return response
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 

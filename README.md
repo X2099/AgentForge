@@ -1,112 +1,548 @@
-# AgentForge — 基于 LangGraph 的 AI 智能体产品实践
+# AgentForge — 基于 LangGraph 的企业级 AI 智能体系统
 
-**AgentForge** 是一个真实可运行的 AI 应用，采用产品化方式呈现 **LangGraph 框架的工程实践方法**。  
-它不仅是一个 Demo，更是一套可扩展、可部署、有完整 UI 的智能体产品模板，用于探索：
+<div align="center">
 
-- 如何在实际产品中使用 LangGraph 构建智能体  
-- 如何组织 Agent 状态、工具、RAG、工作流  
-- 如何将 LangGraph 与 Web UI、用户会话、知识库系统结合  
-- 如何把智能体工程化为一个真正可用的应用  
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1.0+-green.svg)](https://github.com/langchain-ai/langgraph)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.124+-red.svg)](https://fastapi.tiangolo.com/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.52+-orange.svg)](https://streamlit.io/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-本项目适合作为：
+**AgentForge** 是一个完整的企业级 AI 智能体产品框架，基于 **LangGraph** 构建现代化的智能对话系统。它不仅提供开箱即用的功能，更是一套可扩展、可部署的生产级智能体架构模板。
 
-- 🧠 LangGraph 实战入门  
-- 🛠️ 企业级智能体系统的参考框架  
-- 🚀 个人开源作品集（展示工程能力）  
-- 🧪 Agent 研发与实验平台  
+[🚀 快速开始](#-快速开始) • [📖 技术架构](#-技术架构) • [🛠️ 部署方式](#-部署方式) • [🤝 贡献](#-贡献)
 
----
-
-## 🌟 核心功能（产品化）
-
-### 🧠 1. 智能体对话（基于 LangGraph）
-- 多轮对话状态管理  
-- 工具调用链（Function Calling）  
-- 插拔式工具系统（Search、Web API、计算函数等）  
-- 可视化工作流（规划 → 执行）  
-
-### 📚 2. 知识库（RAG）
-- 文档上传（PDF / TXT / Markdown / DOCX）  
-- 自动切片、Embedding  
-- 向量检索（FAISS）  
-- 与 Agent 对话无缝融合  
-
-### 🔧 3. 工具系统
-- 定义 Python 函数 → 自动注册为工具  
-- 在 LangGraph 节点中被调用  
-- 可扩展第三方 API 工具（搜索、天气、数据库等）
-
-### 🖥️ 4. Streamlit Web UI
-- 产品级多会话聊天界面  
-- 知识库管理后台  
-- 模型开关 & 参数配置  
-- 执行链路显示（未来版本）  
+</div>
 
 ---
 
-## 🏗️ 为什么要用 LangGraph？
+## 🌟 项目特色
 
-本项目展示 LangGraph 在真实产品中的三个关键价值：
+### 🔥 **核心价值**
+- **🏗️ 企业级架构** - 基于 LangGraph 的可扩展智能体框架
+- **🎯 生产就绪** - 完整的产品化功能和部署方案
+- **🔧 高度模块化** - 插件化设计，支持快速定制
+- **📊 可观测性** - 内置监控、日志和调试工具
+- **🚀 开箱即用** - 一键启动，立即体验
 
-### 1. **可控性强的对话流程**
-你可以显式地定义：
-- 节点（工具节点、RAG 节点、模型代理节点）  
-- 条件分支  
-- 循环（tool-retry）  
-- 规划 & 执行模式  
-
-### 2. **可追踪、可调试**
-通过图结构可以清晰看到智能体的执行链路。
-
-### 3. **可扩展、可维护**
-相比“端到端 Prompt 方式”，LangGraph 更适合生产环境和团队协作。
+### 🎯 **适用场景**
+- 🤖 **智能客服系统** - 多轮对话 + 知识库问答
+- 📚 **企业知识助手** - 文档智能检索与分析
+- 🔧 **开发辅助工具** - 代码生成与技术咨询
+- 🎓 **教育培训平台** - 个性化学习与答疑
+- 📈 **数据分析助手** - 智能数据洞察与报告
 
 ---
 
-## 架构设计
+## 🛠️ 技术栈
 
-```text
-┌─────────────────────────────────────────┐
-│          客户端层 (Client Layer)          │
-├─────────────────────────────────────────┤
-│          API网关层 (API Gateway)         │
-├─────────────────────────────────────────┤
-│        LangGraph协调层 (Orchestration)   │
-│  ┌───────────────────────────────────┐  │
-│  │      StateGraph (核心图引擎)       │  │
-│  │  • 节点管理                       │  │
-│  │  • 边管理                         │  │
-│  │  • 状态流转                       │  │
-│  └───────────────────────────────────┘  │
-├─────────────────────────────────────────┤
-│         Agent节点层 (Agent Nodes)       │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐  │
-│  │ 规划节点 │ │ 执行节点 │ │ 评估节点 │  │
-│  └─────────┘ └─────────┘ └─────────┘  │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐  │
-│  │ 工具节点 │ │ 记忆节点 │ │ 路由节点 │  │
-│  └─────────┘ └─────────┘ └─────────┘  │
-├─────────────────────────────────────────┤
-│        LangChain集成层 (LangChain)      │
-│  ┌───────────────────────────────────┐  │
-│  │   Tools + Agents + Memory + LLMs  │  │
-│  └───────────────────────────────────┘  │
-├─────────────────────────────────────────┤
-│         模型服务层 (Model Services)     │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐  │
-│  │ LLM API │ │ Embedding│ │ TTS/STT │  │
-│  └─────────┘ └─────────┘ └─────────┘  │
-├─────────────────────────────────────────┤
-│         持久层 (Persistence Layer)      │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐  │
-│  │ 图状态  │ │ 向量存储 │ │ 关系DB  │  │
-│  └─────────┘ └─────────┘ └─────────┘  │
-└─────────────────────────────────────────┘
+### **核心框架**
+| 组件 | 版本 | 说明 |
+|------|------|------|
+| **LangGraph** | `1.0.4` | 智能体工作流编排引擎 |
+| **LangChain** | `1.0.0` | LLM 应用开发框架 |
+| **FastAPI** | `0.124.0` | 高性能异步 Web API 框架 |
+| **Streamlit** | `1.52.1` | 快速构建数据应用的框架 |
+
+### **AI & 机器学习**
+| 组件 | 版本 | 说明 |
+|------|------|------|
+| **OpenAI** | `2.9.0` | GPT 系列模型支持 |
+| **Anthropic** | `0.75.0` | Claude 模型集成 |
+| **Sentence Transformers** | `5.1.2` | 本地 Embedding 模型 |
+| **HuggingFace Transformers** | `4.57.3` | Transformer 模型生态 |
+
+### **向量数据库 & 搜索**
+| 组件 | 版本 | 说明 |
+|------|------|------|
+| **ChromaDB** | `1.3.5` | 开源向量数据库 |
+| **FAISS** | `1.13.1` | Facebook AI 相似性搜索 |
+| **PyTorch** | `2.9.1` | 深度学习框架 |
+
+### **工具集成**
+- **MCP (Model Context Protocol)** - 模型上下文协议
+- **Web Search** - 网络搜索集成
+- **Calculator** - 数学计算工具
+- **Document Processing** - 多格式文档处理 (PDF, DOCX, TXT, MD)
+
+### **开发工具**
+- **Uvicorn** - ASGI 服务器
+- **Pydantic** - 数据验证
+- **Rich** - 终端美化
+- **Python-dotenv** - 环境配置
+
+---
+
+## 🏗️ 系统架构
+
 ```
+┌─────────────────────────────────────────────────────────────┐
+│                    用户界面层 (Presentation)                  │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │                Streamlit Web UI                     │    │
+│  │  ┌─────────┐ ┌────────────┐ ┌────────────┐         │    │
+│  │  │ 聊天界面 │ │ 知识库管理  │ │ 工具管理    │         │    │
+│  │  └─────────┘ └────────────┘ └────────────┘         │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    API 服务层 (API Services)                  │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │                 FastAPI 应用服务器                     │    │
+│  │  ┌─────────┐ ┌────────────┐ ┌────────────┐         │    │
+│  │  │ /chat   │ │ /knowledge │ │ /tools     │         │    │
+│  │  └─────────┘ └────────────┘ └────────────┘         │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  LangGraph 编排层 (Orchestration)             │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │               状态图引擎 (StateGraph)                │    │
+│  │  ┌─────────┐ ┌────────────┐ ┌────────────┐         │    │
+│  │  │ 对话图  │ │ RAG 图    │ │ 工具调用图  │         │    │
+│  │  └─────────┘ └────────────┘ └────────────┘         │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    智能体节点层 (Agent Nodes)                 │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │  ┌─────────┐ ┌────────────┐ ┌────────────┐         │    │
+│  │  │ LLM节点 │ │ 工具节点   │ │ 控制节点   │         │    │
+│  │  └─────────┘ └────────────┘ └────────────┘         │    │
+│  │  ┌─────────┐ ┌────────────┐ ┌────────────┐         │    │
+│  │  │ RAG节点 │ │ MCP节点   │ │ 路由节点   │         │    │
+│  │  └─────────┘ └────────────┘ └────────────┘         │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 LangChain 集成层 (Integration)               │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │  ┌─────────┐ ┌────────────┐ ┌────────────┐         │    │
+│  │  │ 工具链  │ │ 记忆系统   │ │ LLM客户端  │         │    │
+│  │  └─────────┘ └────────────┘ └────────────┘         │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    数据持久层 (Persistence)                  │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │  ┌─────────┐ ┌────────────┐ ┌────────────┐         │    │
+│  │  │ 图状态  │ │ 向量存储   │ │ 配置存储   │         │    │
+│  │  └─────────┘ └────────────┘ └────────────┘         │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### **架构特点**
+
+#### **1. 分层架构设计**
+- **表现层**: Streamlit 提供现代化的 Web 界面
+- **服务层**: FastAPI 处理高并发 API 请求
+- **编排层**: LangGraph 管理复杂的工作流逻辑
+- **集成层**: LangChain 统一外部服务接口
+- **持久层**: 多存储引擎支持数据持久化
+
+#### **2. 插件化架构**
+- **模块化设计**: 各组件独立部署和扩展
+- **标准化接口**: 统一的插件协议和数据格式
+- **热插拔机制**: 运行时动态加载和卸载组件
+
+#### **3. 可观测性设计**
+- **结构化日志**: 完整的请求追踪和错误记录
+- **性能监控**: 内置指标收集和性能分析
+- **调试支持**: 工作流可视化和状态检查
+
+---
 
 ## 📁 项目结构
 
+### **目录说明**
+
+| 目录 | 说明 |
+|------|------|
+| `configs/` | 配置文件目录，包含LLM、知识库、工具等配置 |
+| `src/api/` | REST API 服务层，基于 FastAPI |
+| `src/core/` | 核心业务逻辑，包含智能体、图、节点等 |
+| `src/knowledge/` | 知识库系统，支持多种文档格式和向量存储 |
+| `src/llm/` | LLM 集成层，支持多模型提供商 |
+| `src/tools/` | 工具系统，集成 MCP 协议和内置工具 |
+| `src/webui/` | Web 界面，基于 Streamlit 的现代化 UI |
+| `examples/` | 示例代码和使用演示 |
+| `scripts/` | 部署和启动脚本 |
+
 ```
+AgentForge/
+├── 📄 README.md                 # 项目文档
+├── 📋 requirements.txt          # Python 依赖
+├── 🔧 scripts/                  # 启动脚本
+│   ├── __init__.py
+│   └── start_server.py         # 服务启动脚本
+├── ⚙️ configs/                  # 配置文件
+│   ├── knowledge_bases/         # 知识库配置
+│   ├── llm_config.yaml          # LLM 配置
+│   ├── mcp_tools.yaml           # MCP 工具配置
+│   └── research_papers.yaml     # 研究论文配置
+├── 📚 examples/                 # 示例代码
+│   ├── __init__.py
+│   ├── mcp_client_example.py    # MCP 客户端示例
+│   └── mcp_server_example.py   # MCP 服务端示例
+├── 🧠 src/                      # 源代码
+│   ├── __init__.py
+│   ├── api/                     # API 服务层
+│   │   ├── __init__.py
+│   │   └── langgraph_api.py     # FastAPI 应用
+│   ├── core/                    # 核心业务逻辑
+│   │   ├── __init__.py
+│   │   ├── orchestrator.py      # 工作流编排器
+│   │   ├── agents/              # 智能体实现
+│   │   │   ├── __init__.py
+│   │   │   ├── agent_manager.py  # 智能体管理器
+│   │   │   └── langgraph_agent.py # LangGraph 智能体
+│   │   ├── graphs/              # 图定义
+│   │   │   ├── __init__.py
+│   │   │   └── base_graph.py    # 基础图类
+│   │   ├── nodes/               # 图节点
+│   │   │   ├── __init__.py
+│   │   │   ├── base_node.py     # 基础节点
+│   │   │   ├── control_nodes.py # 控制节点
+│   │   │   ├── llm_nodes.py     # LLM 节点
+│   │   │   ├── mcp_tool_node.py # MCP 工具节点
+│   │   │   └── tool_nodes.py    # 工具节点
+│   │   └── state/               # 状态管理
+│   │       ├── __init__.py
+│       ├── base_state.py    # 基础状态
+│       └── message_system.py # 消息系统
+│   ├── knowledge/               # 知识库系统
+│   │   ├── __init__.py
+│   │   ├── kb_manager.py        # 知识库管理器
+│   │   ├── kb_nodes.py          # 知识库节点
+│   │   ├── knowledge_base.py    # 知识库核心
+│   │   ├── langchain_kb.py      # LangChain 集成
+│   │   ├── KNOWLEDGE_OPTIMIZATION_SUMMARY.md
+│   │   ├── KNOWLEDGE_OPTIMIZATION.md
+│   │   ├── document_loaders/    # 文档加载器
+│   │   │   ├── __init__.py
+│   │   │   ├── base_loader.py
+│   │   │   ├── docx_loader.py
+│   │   │   ├── markdown_loader.py
+│   │   │   ├── pdf_loader.py
+│   │   │   ├── txt_loader.py
+│   │   │   └── web_loader.py
+│   │   ├── embeddings/          # 嵌入模型
+│   │   │   ├── __init__.py
+│   │   │   ├── base_embedder.py
+│   │   │   ├── embedder_factory.py
+│   │   │   ├── local_embedder.py
+│   │   │   └── openai_embedder.py
+│   │   ├── text_splitters/      # 文本分割器
+│   │   │   ├── __init__.py
+│   │   │   ├── base_splitter.py
+│   │   │   ├── recursive_splitter.py
+│   │   │   ├── semantic_splitter.py
+│   │   └── vector_stores/       # 向量存储
+│   │       ├── __init__.py
+│   │       ├── base_store.py
+│   │       ├── chroma_store.py
+│   │       ├── faiss_store.py
+│   │       └── store_factory.py
+│   ├── llm/                     # LLM 集成
+│   │   ├── __init__.py
+│   │   ├── llm_base.py          # LLM 基础类
+│   │   ├── llm_client.py        # LLM 客户端
+│   │   ├── config/              # 配置管理
+│   │   │   ├── __init__.py
+│   │   │   └── llm_config.py
+│   │   ├── providers/           # 模型提供商
+│   │   │   ├── __init__.py
+│   │   │   ├── anthropic_provider.py
+│   │   │   ├── base_provider.py
+│   │   │   ├── local_provider.py
+│   │   │   ├── openai_provider.py
+│   │   │   └── provider_factory.py
+│   │   ├── prompts/             # Prompt 模板
+│   │   │   ├── __init__.py
+│   │   │   └── base_prompt.py
+│   │   ├── schemas/             # 数据模型
+│   │   │   ├── __init__.py
+│   │   │   └── messages.py
+│   │   └── utils/               # 工具函数
+│   │       ├── __init__.py
+│   │       ├── rate_limiter.py  # 速率限制
+│   │       └── token_counter.py # Token 计数
+│   ├── memory/                  # 记忆系统
+│   │   ├── __init__.py
+│   │   ├── memory_manager.py    # 记忆管理器
+│   │   ├── memory_nodes.py      # 记忆节点
+│   │   ├── MEMORY_REFACTORING.md
+│   │   └── MEMORY_REFACTORING_SUMMARY.md
+│   ├── tools/                   # 工具系统
+│   │   ├── __init__.py
+│   │   ├── tool_manager.py      # 工具管理器
+│   │   ├── mcp_client.py        # MCP 客户端
+│   │   ├── mcp_registry.py      # MCP 注册表
+│   │   ├── mcp_server.py       # MCP 服务端
+│   │   ├── builtin_tools/       # 内置工具
+│   │   │   ├── __init__.py
+│   │   │   ├── calculator.py    # 计算器工具
+│   │   │   ├── knowledge_base.py # 知识库工具
+│   │   │   └── web_search.py    # 网络搜索工具
+│   │   ├── config/              # 工具配置
+│   │   │   ├── __init__.py
+│   │   │   └── mcp_config.py
+│   │   ├── schemas/             # 数据模型
+│   │   │   ├── __init__.py
+│   │   │   ├── messages.py
+│   │   │   └── protocol.py
+│   │   └── transports/          # 传输层
+│   │       ├── __init__.py
+│   │       ├── http_transport.py
+│   │       └── stdio_transport.py
+│   ├── workflows/               # 工作流定义
+│   │   ├── __init__.py
+│   │   ├── conversation_workflow.py # 对话工作流
+│   │   └── rag_workflow.py      # RAG 工作流
+│   └── webui/                   # Web 界面
+│       ├── __init__.py
+│       ├── streamlit_app.py     # 主应用
+│       ├── chat_ui.py           # 聊天界面
+│       ├── knowledge_base_ui.py # 知识库界面
+│       ├── tools_ui.py          # 工具界面
+│       ├── components/          # UI 组件
+│       │   ├── __init__.py
+│       │   ├── kb_overview.py   # 知识库总览
+│       │   ├── kb_creator.py    # 知识库创建
+│       │   ├── kb_search.py     # 搜索测试
+│       │   ├── kb_config.py     # 配置管理
+│       │   ├── kb_sidebar.py    # 侧边栏
+│       │   └── ui_components.py # 通用组件
+│       ├── styles/              # 样式文件
+│       │   ├── __init__.py
+│       │   └── custom_styles.py
+│       └── utils/               # UI 工具
+│           ├── __init__.py
+│           ├── error_handler.py # 错误处理
+│           └── notifications.py # 通知系统
+└── 📝 *.md                      # 文档文件
+```
+
+---
+
+## 🚀 快速开始
+
+### **环境要求**
+- Python 3.8+
+- pip (推荐使用虚拟环境)
+
+### **安装步骤**
+
+#### 1. 克隆项目
+```bash
+git clone https://github.com/your-username/AgentForge.git
+cd AgentForge
+```
+
+#### 2. 激活现有虚拟环境
+```bash
+# 项目使用独立的虚拟环境
+# Windows: 激活虚拟环境
+D:\Coding\ENVS\AgentForge\Scripts\activate.bat
+
+# Linux/macOS: 激活虚拟环境
+# source D:/Coding/ENVS/AgentForge/Scripts/activate
+```
+
+#### 3. 环境检查
+```bash
+# 检查环境状态和依赖安装
+python scripts/check_env.py
+```
+
+#### 4. 快速启动（推荐）
+```bash
+# Windows用户：双击运行
+start.bat
+
+# 或手动启动
+python scripts/start_server.py --mode all
+```
+
+#### 3. 配置环境变量
+```bash
+# 复制环境配置模板
+cp .env.example .env
+
+# 编辑配置文件
+nano .env
+```
+
+#### 4. 启动服务
+```bash
+# 方式1：一键启动（API + WebUI）
+python scripts/start_server.py --mode all
+
+# 方式2：分别启动
+# 终端1：启动API服务器
+python scripts/start_server.py --mode api --port 7861
+
+# 终端2：启动Web界面
+python scripts/start_server.py --mode webui --port 8501
+```
+
+#### 5. 访问应用
+- **Web 界面**: http://localhost:8501
+- **API 文档**: http://localhost:7861/docs
+
+---
+
+## 🛠️ 部署方式
+
+### **开发环境**
+```bash
+# 使用 Python 虚拟环境
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+python scripts/start_server.py --mode all
+```
+
+### **生产环境**
+
+#### Docker 部署
+```bash
+# 构建镜像
+docker build -t agentforge .
+
+# 运行容器
+docker run -p 7861:7861 -p 8501:8501 agentforge
+```
+
+#### Docker Compose
+```yaml
+version: '3.8'
+services:
+  agentforge:
+    build: .
+    ports:
+      - "7861:7861"  # API
+      - "8501:8501"  # WebUI
+    environment:
+      - ENV=production
+    volumes:
+      - ./data:/app/data
+      - ./configs:/app/configs
+```
+
+### **云部署**
+
+#### Vercel (推荐)
+```bash
+# 安装 Vercel CLI
+npm i -g vercel
+
+# 部署
+vercel --prod
+```
+
+#### Railway
+1. 连接 GitHub 仓库
+2. 自动检测 Python 项目
+3. 设置环境变量
+4. 一键部署
+
+---
+
+## 📖 核心功能
+
+### **1. 智能体对话系统**
+- ✅ **多轮对话管理** - 基于 LangGraph 的状态管理
+- ✅ **工具调用集成** - 支持函数调用和外部 API
+- ✅ **记忆系统** - 会话级和全局记忆
+- ✅ **流式响应** - 实时对话体验
+
+### **2. 知识库管理系统**
+- ✅ **多格式支持** - PDF、DOCX、TXT、Markdown
+- ✅ **智能分块** - 递归分割和语义分割
+- ✅ **向量检索** - ChromaDB 和 FAISS 支持
+- ✅ **增量更新** - 支持文档更新和重新索引
+
+### **3. 工具生态系统**
+- ✅ **MCP 协议** - Model Context Protocol 支持
+- ✅ **内置工具** - 计算器、网络搜索、知识库查询
+- ✅ **插件架构** - 支持自定义工具扩展
+- ✅ **工具编排** - 工作流中的工具组合
+
+### **4. 可观测性**
+- ✅ **结构化日志** - 完整的请求追踪
+- ✅ **性能监控** - API 调用统计和延迟监控
+- ✅ **错误处理** - 优雅的错误恢复机制
+- ✅ **调试支持** - 工作流状态可视化
+
+---
+
+## 🤝 贡献指南
+
+### **开发流程**
+1. Fork 项目
+2. 创建特性分支: `git checkout -b feature/amazing-feature`
+3. 提交更改: `git commit -m 'Add amazing feature'`
+4. 推送分支: `git push origin feature/amazing-feature`
+5. 提交 Pull Request
+
+### **代码规范**
+- 遵循 PEP 8 代码风格
+- 添加类型提示
+- 编写单元测试
+- 更新文档
+
+### **提交规范**
+```
+type(scope): description
+
+type: feat, fix, docs, style, refactor, test, chore
+scope: api, webui, core, knowledge, tools, etc.
+```
+
+---
+
+## 📄 许可证
+
+本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+
+---
+
+## 🙏 致谢
+
+- **LangChain** - 优秀的 LLM 应用框架
+- **LangGraph** - 强大的智能体编排引擎
+- **Streamlit** - 简洁的 Web 应用框架
+- **ChromaDB** - 易用的向量数据库
+
+---
+
+## 📞 联系我们
+
+- **项目主页**: https://github.com/your-username/AgentForge
+- **问题反馈**: https://github.com/your-username/AgentForge/issues
+- **邮箱**: your-email@example.com
+
+---
+
+<div align="center">
+
+**⭐ 如果这个项目对你有帮助，请给我们一个 Star！**
+
+[⬆️ 返回顶部](#agentforge--基于-langgraph-的企业级-ai-智能体系统)
+
+</div>
 AgentForge/
 ├── README.md
 ├── pyproject.toml

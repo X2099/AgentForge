@@ -2,123 +2,173 @@
 """
 @File    : conversation_workflow.py
 @Time    : 2025/12/9 14:39
-@Desc    : 对话系统工作流
+@Desc    : 基于LangGraph标准的对话工作流
 """
-from langgraph.graph import StateGraph, END
-from langgraph.graph.message import add_messages
-from typing import Dict, Any, List, Annotated
+from typing import Dict, Any, List, Optional
+from langgraph.graph import StateGraph, START, END
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_core.tools import BaseTool
+
+from ..core.graphs.base_graph import BaseGraph
+from ..core.state.base_state import GraphState
+from ..llm.llm_client import LLMClient
 
 
-class ConversationState:
-    """对话状态（兼容Langchain-Chatchat）"""
-    messages: Annotated[List[Dict[str, Any]], add_messages]
-    query: str
-    history: List[Dict[str, Any]] = None
-    response: str = ""
-    knowledge_base_enabled: bool = True
+class ConversationState(GraphState):
+    """对话状态"""
+    # 从GraphState继承messages等基础字段
+    query: Optional[str]
+    response: Optional[str]
+    knowledge_base_enabled: bool
+    retrieved_context: Optional[str]
 
 
-def create_conversation_workflow(llm, tools=None, knowledge_base=None):
-    """创建对话工作流（对标Conversation Chain）"""
+class ConversationWorkflow(BaseGraph):
+    """
+    对话工作流
+    
+    标准的对话流程：检索 -> LLM生成 -> 响应
+    """
 
-    workflow = StateGraph(ConversationState)
-
-    # 1. 历史管理节点
-    def history_manager(state: ConversationState):
-        """管理对话历史"""
-        # 类似Langchain-Chatchat的历史管理
-        max_history = 10
-        if len(state.messages) > max_history:
-            # 保留系统消息和最近的对话
-            system_msgs = [m for m in state.messages if m.get('role') == 'system']
-            recent_msgs = state.messages[-max_history + len(system_msgs):]
-            state.messages = system_msgs + recent_msgs
-
-        return {"messages": state.messages}
-
-    # 2. 知识库检索节点（如果启用）
-    def knowledge_retriever(state: ConversationState):
-        """知识库检索"""
-        if not state.knowledge_base_enabled or not knowledge_base:
-            return {"context": ""}
-
-        # 从最近的消息中提取查询
-        last_user_msg = next(
-            (m for m in reversed(state.messages) if m.get('role') == 'user'),
-            None
+    def __init__(
+            self,
+            llm_client: LLMClient,
+            tools: Optional[List[BaseTool]] = None,
+            knowledge_base: Optional[Any] = None,
+            system_prompt: Optional[str] = None
+    ):
+        """
+        初始化对话工作流
+        
+        Args:
+            llm_client: LLM客户端
+            tools: 工具列表
+            knowledge_base: 知识库（可选）
+            system_prompt: 系统提示词
+        """
+        super().__init__(
+            name="conversation_workflow",
+            description="标准对话工作流",
+            state_type=ConversationState
         )
 
-        if not last_user_msg:
-            return {"context": ""}
+        self.llm_client = llm_client
+        self.tools = tools or []
+        self.knowledge_base = knowledge_base
+        self.system_prompt = system_prompt or "你是一个有帮助的AI助手。"
 
-        query = last_user_msg.get('content', '')
-        documents = knowledge_base.search(query, k=3)
+    def build(self):
+        """构建对话工作流"""
+        # 添加节点
+        self.add_node("retrieve", self._retrieve_node)
+        self.add_node("generate", self._generate_node)
 
-        # 构建知识上下文
-        context_parts = []
-        for doc in documents:
-            context_parts.append(f"相关文档：{doc.content[:200]}...")
+        # 构建流程
+        # 如果启用知识库，先检索
+        if self.knowledge_base:
+            self.add_edge(START, "retrieve")
+            self.add_edge("retrieve", "generate")
+        else:
+            self.add_edge(START, "generate")
 
-        return {"context": "\n".join(context_parts) if context_parts else ""}
+        # 生成后结束
+        self.add_edge("generate", END)
 
-    # 3. LLM生成节点
-    def llm_generator(state: ConversationState):
-        """生成回复"""
+    def _retrieve_node(self, state: ConversationState) -> Dict[str, Any]:
+        """知识库检索节点"""
+        if not self.knowledge_base or not state.get("query"):
+            return {"retrieved_context": ""}
+
+        try:
+            # 从知识库检索
+            query = state["query"]
+            documents = self.knowledge_base.search(query, k=3)
+
+            # 构建上下文
+            context_parts = []
+            for i, doc in enumerate(documents, 1):
+                content = doc.content[:200] if hasattr(doc, "content") else str(doc)[:200]
+                context_parts.append(f"[文档{i}] {content}")
+
+            context = "\n\n".join(context_parts)
+            return {"retrieved_context": context}
+
+        except Exception as e:
+            return {"retrieved_context": f"检索错误: {str(e)}"}
+
+    async def _generate_node(self, state: ConversationState) -> Dict[str, Any]:
+        """LLM生成节点"""
         # 准备消息
-        messages = []
+        messages = list(state.get("messages", []))
 
-        # 添加系统提示
-        system_prompt = """你是一个有帮助的AI助手。"""
-        if state.get('context'):
-            system_prompt += f"\n\n相关背景信息：\n{state.context}"
+        # 添加系统提示词
+        system_prompt = self.system_prompt
+        if state.get("retrieved_context"):
+            system_prompt += f"\n\n相关背景信息：\n{state['retrieved_context']}"
 
-        messages.append({"role": "system", "content": system_prompt})
+        formatted_messages = [{"role": "system", "content": system_prompt}]
 
         # 添加历史消息
-        messages.extend(state.messages)
+        for msg in messages:
+            if isinstance(msg, dict):
+                formatted_messages.append({
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("content", "")
+                })
+            elif isinstance(msg, BaseMessage):
+                role = "user" if isinstance(msg, HumanMessage) else "assistant"
+                formatted_messages.append({"role": role, "content": msg.content})
 
         # 调用LLM
-        response = llm.chat(messages)
+        try:
+            response = await self.llm_client.achat(
+                messages=formatted_messages,
+                tools=self.tools if self.tools else None
+            )
 
-        return {
-            "response": response.get_content(),
-            "messages": state.messages + [
-                {"role": "assistant", "content": response.get_content()}
-            ]
-        }
+            # response是AIMessage类型
+            content = response.content if hasattr(response, "content") else str(response)
 
-    # 4. 工具调用节点（如果启用）
-    def tool_executor(state: ConversationState):
-        """执行工具调用"""
-        if not tools:
-            return {}
+            # 创建AI消息
+            ai_message = AIMessage(content=content)
 
-        # 检查是否需要工具调用
-        # 这里简化处理，实际应该解析LLM的tool_calls
-        return {}
+            return {
+                "messages": [ai_message],
+                "response": content
+            }
 
-    # 添加节点
-    workflow.add_node("history_manager", history_manager)
-    workflow.add_node("knowledge_retriever", knowledge_retriever)
-    workflow.add_node("llm_generator", llm_generator)
+        except Exception as e:
+            error_content = f"抱歉，生成响应时出错：{str(e)}"
+            return {
+                "messages": [AIMessage(content=error_content)],
+                "response": error_content,
+                "error": str(e)
+            }
 
-    if tools:
-        workflow.add_node("tool_executor", tool_executor)
 
-    # 构建流程
-    workflow.set_entry_point("history_manager")
-    workflow.add_edge("history_manager", "knowledge_retriever")
-    workflow.add_edge("knowledge_retriever", "llm_generator")
-
-    if tools:
-        # 添加工具调用路由
-        workflow.add_conditional_edges(
-            "llm_generator",
-            lambda state: "tools" if state.get('needs_tools') else "end",
-            {"tools": "tool_executor", "end": END}
-        )
-        workflow.add_edge("tool_executor", "history_manager")
-    else:
-        workflow.add_edge("llm_generator", END)
+def create_conversation_workflow(
+        llm_client: LLMClient,
+        tools: Optional[List[BaseTool]] = None,
+        knowledge_base: Optional[Any] = None,
+        system_prompt: Optional[str] = None
+) -> StateGraph:
+    """
+    创建对话工作流（便捷函数）
+    
+    Args:
+        llm_client: LLM客户端
+        tools: 工具列表
+        knowledge_base: 知识库
+        system_prompt: 系统提示词
+        
+    Returns:
+        编译后的工作流图
+    """
+    workflow = ConversationWorkflow(
+        llm_client=llm_client,
+        tools=tools,
+        knowledge_base=knowledge_base,
+        system_prompt=system_prompt
+    )
 
     return workflow.compile()

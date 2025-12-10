@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-@File    : __init__.py.py
-@Time    : 2025/12/9 10:25
-@Desc    : 
+LLM集成模块 - 基于LangChain实现
 """
+from .llm_client import LLMClient
+from .config.llm_config import LLMConfig
+
+__all__ = ["LLMClient", "LLMConfig"]

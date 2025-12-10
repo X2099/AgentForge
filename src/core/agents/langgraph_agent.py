@@ -2,372 +2,345 @@
 """
 @File    : langgraph_agent.py
 @Time    : 2025/12/9 12:27
-@Desc    : 
+@Desc    : 基于LangGraph标准的Agent构建器
 """
-from typing import Dict, Any, List, Optional, Callable
-from langgraph.graph import StateGraph, END
+from typing import Dict, Any, List, Optional, Callable, Sequence
+from langgraph.graph import StateGraph, END, START
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.sqlite import SqliteSaver
-import operator
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
+from langchain_core.tools import BaseTool
 
+from ..graphs.base_graph import AgentGraph
 from ..state.base_state import AgentState
-from ..nodes.llm_nodes import LLMNode
-from ..nodes.tool_nodes import ToolExecutorNode
-from ..nodes.control_nodes import RouterNode
-from ..nodes.mcp_tool_node import MCPToolExecutorNode
-from ...memory.langgraph_nodes import (
-    MemoryRetrievalNode,
-    MemoryUpdateNode,
-    ContextManagementNode
-)
-from ...tools.mcp_client import MCPClient
+from ..nodes.tool_nodes import create_tool_executor_node
+from ...llm.llm_client import LLMClient
 from ...llm.config.llm_config import LLMConfig
+from ...tools.tool_manager import ToolManager, get_tool_manager
+from ...memory import MemoryManager, create_memory_retrieval_node, create_memory_truncation_node
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
-class LangGraphAgentBuilder:
-    """LangGraph智能体构建器"""
-
-    def __init__(self,
-                 agent_name: str,
-                 llm_config: Optional[Dict[str, Any]] = None,
-                 tools_config: Optional[Dict[str, Any]] = None):
+class LangGraphAgentBuilder(AgentGraph):
+    """
+    LangGraph智能体构建器
+    
+    基于标准AgentGraph构建完整的Agent工作流
+    """
+    
+    def __init__(
+        self,
+        agent_name: str,
+        llm_client: Optional[LLMClient] = None,
+        llm_config: Optional[Dict[str, Any]] = None,
+        tools: Optional[List[BaseTool]] = None,
+        tool_manager: Optional[ToolManager] = None,
+        memory_manager: Optional[MemoryManager] = None,
+        system_prompt: Optional[str] = None,
+        max_iterations: int = 15,
+        enable_memory: bool = True
+    ):
         """
         初始化智能体构建器
-
+        
         Args:
             agent_name: 智能体名称
-            llm_config: LLM配置
-            tools_config: 工具配置
+            llm_client: LLM客户端（如果提供，优先使用）
+            llm_config: LLM配置（如果未提供llm_client）
+            tools: 工具列表（直接提供）
+            tool_manager: 工具管理器（如果不提供tools，则使用此管理器的工具）
+            system_prompt: 系统提示词
+            max_iterations: 最大迭代次数
         """
+        super().__init__(name=agent_name, description=f"Agent: {agent_name}", max_iterations=max_iterations)
+        
         self.agent_name = agent_name
-        self.llm_config = llm_config or {}
-        self.tools_config = tools_config or {}
-
-        # 创建状态图
-        self.workflow = StateGraph(AgentState)
-
-        # 存储节点引用
-        self.nodes: Dict[str, Callable] = {}
-
-        # 初始化组件
-        self._initialize_components()
-
-    def _initialize_components(self):
-        """初始化组件"""
-        # LLM配置
-        llm_config_manager = LLMConfig()
-        self.llm_client = llm_config_manager.create_client(
-            **self.llm_config
-        )
-
-        # MCP客户端（用于工具调用）
-        self.mcp_client = MCPClient(
-            transport_type=self.tools_config.get("transport", "stdio"),
-            transport_config=self.tools_config.get("transport_config", {})
-        )
-
-    def build_basic_agent(self) -> StateGraph:
-        """构建基础对话智能体"""
-        # 添加节点
-        self._add_memory_retrieval_node()
-        self._add_context_management_node()
-        self._add_llm_node()
-        self._add_tool_executor_node()
-        self._add_response_formatter_node()
-        self._add_memory_update_node()
-
-        # 构建流程
-        self.workflow.set_entry_point("memory_retrieval")
-        self.workflow.add_edge("memory_retrieval", "context_management")
-        self.workflow.add_edge("context_management", "llm")
-
-        # LLM后的条件路由
-        self.workflow.add_conditional_edges(
-            "llm",
-            self._route_after_llm,
-            {
-                "tools": "tool_executor",
-                "response": "response_formatter"
-            }
-        )
-
-        self.workflow.add_edge("tool_executor", "llm")
-        self.workflow.add_edge("response_formatter", "memory_update")
-        self.workflow.add_edge("memory_update", END)
-
-        return self.workflow
-
-    def build_research_agent(self) -> StateGraph:
-        """构建研究分析智能体"""
-        # 添加研究专用节点
-        self._add_planning_node()
-        self._add_web_search_node()
-        self._add_analysis_node()
-        self._add_report_generation_node()
-
-        # 构建研究流程
-        self.workflow.set_entry_point("planning")
-        self.workflow.add_edge("planning", "web_search")
-        self.workflow.add_edge("web_search", "analysis")
-        self.workflow.add_edge("analysis", "report_generation")
-        self.workflow.add_edge("report_generation", END)
-
-        return self.workflow
-
-    def build_coding_agent(self) -> StateGraph:
-        """构建代码开发智能体"""
-        # 添加编程专用节点
-        self._add_requirements_analysis_node()
-        self._add_architecture_design_node()
-        self._add_code_generation_node()
-        self._add_code_testing_node()
-        self._add_documentation_node()
-
-        # 构建编程流程
-        self.workflow.set_entry_point("requirements_analysis")
-        self.workflow.add_edge("requirements_analysis", "architecture_design")
-        self.workflow.add_edge("architecture_design", "code_generation")
-
-        # 代码生成后的条件路由
-        self.workflow.add_conditional_edges(
-            "code_generation",
-            self._route_after_code_generation,
-            {
-                "needs_testing": "code_testing",
-                "needs_docs": "documentation",
-                "complete": END
-            }
-        )
-
-        self.workflow.add_edge("code_testing", "code_generation")  # 测试失败返回修改
-        self.workflow.add_edge("documentation", END)
-
-        return self.workflow
-
-    def _add_memory_retrieval_node(self):
-        """添加记忆检索节点"""
-        from ...memory.langgraph_memory import LangGraphMemoryStore
-        from ...memory.langgraph_nodes import MemoryRetrievalNode
-
-        memory_store = LangGraphMemoryStore()
-        memory_node = MemoryRetrievalNode(memory_store)
-
-        self.workflow.add_node("memory_retrieval", memory_node)
-        self.nodes["memory_retrieval"] = memory_node
-
-    def _add_context_management_node(self):
-        """添加上下文管理节点"""
-        from ...memory.short_term.context_memory import ContextMemoryManager
-        from ...memory.langgraph_nodes import ContextManagementNode
-
-        context_manager = ContextMemoryManager(llm_client=self.llm_client)
-        context_node = ContextManagementNode(context_manager)
-
-        self.workflow.add_node("context_management", context_node)
-        self.nodes["context_management"] = context_node
-
-    def _add_llm_node(self):
-        """添加LLM节点"""
-        from ..nodes.llm_nodes import LLMNode
-
-        llm_node = LLMNode(
-            name="llm",
-            llm_client=self.llm_client,
-            system_prompt="你是一个有帮助的AI助手。"
-        )
-
-        self.workflow.add_node("llm", llm_node)
-        self.nodes["llm"] = llm_node
-
-    def _add_tool_executor_node(self):
-        """添加工具执行节点"""
-        from ..nodes.mcp_tool_node import MCPToolExecutorNode
-
-        tool_node = MCPToolExecutorNode(
-            name="tool_executor",
-            mcp_client=self.mcp_client
-        )
-
-        self.workflow.add_node("tool_executor", tool_node)
-        self.nodes["tool_executor"] = tool_node
-
-    def _add_response_formatter_node(self):
-        """添加响应格式化节点"""
-
-        def response_formatter(state: AgentState) -> Dict[str, Any]:
-            """格式化最终响应"""
-            response = {
-                "final_response": state.get("llm_response", {}).get("content", ""),
-                "tool_results": state.get("tool_results", []),
-                "current_step": "response_formatter",
-                "should_continue": False
-            }
-            return response
-
-        self.workflow.add_node("response_formatter", response_formatter)
-        self.nodes["response_formatter"] = response_formatter
-
-    def _add_memory_update_node(self):
-        """添加记忆更新节点"""
-        from ...memory.langgraph_memory import LangGraphMemoryStore
-        from ...memory.langgraph_nodes import MemoryUpdateNode
-
-        memory_store = LangGraphMemoryStore()
-        memory_update_node = MemoryUpdateNode(memory_store)
-
-        # 包装为同步函数
-        async def memory_update_wrapper(state: AgentState):
-            return await memory_update_node(state)
-
-        self.workflow.add_node("memory_update", memory_update_wrapper)
-        self.nodes["memory_update"] = memory_update_wrapper
-
-    def _add_planning_node(self):
-        """添加规划节点"""
-
-        def planning_node(state: AgentState) -> Dict[str, Any]:
-            """任务规划"""
-            query = state.get("messages", [{}])[-1].get("content", "")
-
-            # 生成研究计划
-            plan = {
-                "research_topic": query,
-                "steps": [
-                    "1. 收集背景信息",
-                    "2. 搜索相关资料",
-                    "3. 分析信息",
-                    "4. 撰写报告"
-                ],
-                "tools_needed": ["web_search", "knowledge_base_search"]
-            }
-
-            return {
-                "plan": plan,
-                "current_step": "planning"
-            }
-
-        self.workflow.add_node("planning", planning_node)
-        self.nodes["planning"] = planning_node
-
-    def _add_web_search_node(self):
-        """添加网页搜索节点"""
-
-        async def web_search_node(state: AgentState) -> Dict[str, Any]:
-            """网页搜索"""
-            plan = state.get("plan", {})
-            topic = plan.get("research_topic", "")
-
-            # 使用MCP工具进行搜索
-            search_result = await self.mcp_client.call_tool_simple(
-                "web_search",
-                {"query": topic, "max_results": 5}
-            )
-
-            return {
-                "search_results": search_result,
-                "current_step": "web_search"
-            }
-
-        self.workflow.add_node("web_search", web_search_node)
-        self.nodes["web_search"] = web_search_node
-
-    def _add_analysis_node(self):
-        """添加分析节点"""
-
-        async def analysis_node(state: AgentState) -> Dict[str, Any]:
-            """分析搜索结果"""
-            search_results = state.get("search_results", "")
-
-            # 使用LLM进行分析
-            analysis_prompt = f"""
-            请分析以下搜索结果，提取关键信息：
-
-            {search_results}
-
-            请总结：
-            1. 主要发现
-            2. 关键数据
-            3. 重要观点
-            4. 结论
-            """
-
-            response = self.llm_client.chat([
-                {"role": "user", "content": analysis_prompt}
-            ])
-
-            return {
-                "analysis": response.get_content(),
-                "current_step": "analysis"
-            }
-
-        self.workflow.add_node("analysis", analysis_node)
-        self.nodes["analysis"] = analysis_node
-
-    def _add_report_generation_node(self):
-        """添加报告生成节点"""
-
-        async def report_generation_node(state: AgentState) -> Dict[str, Any]:
-            """生成研究报告"""
-            plan = state.get("plan", {})
-            analysis = state.get("analysis", "")
-
-            report_prompt = f"""
-            基于以下分析生成研究报告：
-
-            研究主题：{plan.get('research_topic', '')}
-
-            分析结果：
-            {analysis}
-
-            请生成结构化的研究报告，包含：
-            1. 引言
-            2. 研究方法
-            3. 研究发现
-            4. 结论
-            5. 参考文献
-            """
-
-            response = self.llm_client.chat([
-                {"role": "user", "content": report_prompt}
-            ])
-
-            return {
-                "report": response.get_content(),
-                "current_step": "report_generation",
-                "should_continue": False
-            }
-
-        self.workflow.add_node("report_generation", report_generation_node)
-        self.nodes["report_generation"] = report_generation_node
-
-    def _route_after_llm(self, state: AgentState) -> str:
-        """LLM后的路由逻辑"""
-        if state.get("tool_calls"):
-            return "tools"
-        return "response"
-
-    def _route_after_code_generation(self, state: AgentState) -> str:
-        """代码生成后的路由逻辑"""
-        code_quality = state.get("code_quality", "good")
-
-        if code_quality == "needs_testing":
-            return "needs_testing"
-        elif code_quality == "needs_docs":
-            return "needs_docs"
+        self.system_prompt = system_prompt or "你是一个有帮助的AI助手。"
+        
+        # 确定使用的工具
+        if tools:
+            self.tools = tools
+        elif tool_manager:
+            self.tools = tool_manager.get_tools_for_llm()
         else:
-            return "complete"
-
-    def compile(self, checkpointer: Optional[SqliteSaver] = None) -> StateGraph:
-        """编译智能体"""
-        if checkpointer:
-            return self.workflow.compile(checkpointer=checkpointer)
-        return self.workflow.compile()
-
+            # 使用全局工具管理器
+            self.tools = get_tool_manager().get_tools_for_llm()
+        
+        self.tool_manager = tool_manager or get_tool_manager()
+        
+        # 初始化LLM客户端
+        if llm_client:
+            self.llm_client = llm_client
+        else:
+            config_manager = LLMConfig()
+            self.llm_client = config_manager.create_client(**(llm_config or {}))
+        
+        # 记忆管理器
+        self.memory_manager = memory_manager
+        self.enable_memory = enable_memory and memory_manager is not None
+        
+        logger.info(f"Initialized agent builder: {agent_name} with {len(self.tools)} tools, memory={'enabled' if self.enable_memory else 'disabled'}")
+    
+    def build(self):
+        """构建基础Agent图"""
+        self.build_basic_agent()
+    
+    def build_basic_agent(self):
+        """
+        构建基础对话智能体
+        
+        流程（有记忆）: START -> memory_retrieval -> memory_truncation -> agent -> (tools) -> END
+        流程（无记忆）: START -> agent -> (tools) -> END
+        """
+        # 添加agent节点（统一的LLM调用节点）- 异步节点
+        # LangGraph会自动处理异步节点
+        self.add_node("agent", self._agent_node)
+        
+        # 如果启用记忆，添加记忆节点
+        if self.enable_memory and self.memory_manager:
+            memory_retrieval = create_memory_retrieval_node(self.memory_manager, self.llm_client)
+            memory_truncation = create_memory_truncation_node(self.memory_manager)
+            
+            self.add_node("memory_retrieval", memory_retrieval)
+            self.add_node("memory_truncation", memory_truncation)
+        
+        # 如果有工具，添加工具执行节点
+        if self.tools:
+            tool_executor = create_tool_executor_node(self.tools)
+            self.add_node("tools", tool_executor)
+        
+        # 构建流程
+        self.set_entry_point(START)
+        
+        # 设置入口流程
+        if self.enable_memory and self.memory_manager:
+            # 有记忆：先检索记忆，再截断消息，然后执行agent
+            self.add_edge(START, "memory_retrieval")
+            self.add_edge("memory_retrieval", "memory_truncation")
+            self.add_edge("memory_truncation", "agent")
+        else:
+            # 无记忆：直接执行agent
+            self.add_edge(START, "agent")
+        
+        # Agent后的条件路由
+        if self.tools:
+            # 检查是否有工具调用
+            self.add_conditional_edges(
+                source="agent",
+                condition=self._should_use_tools,
+                path_map={
+                    "tools": "tools",
+                    "end": END
+                }
+            )
+            # 工具执行后返回agent（继续循环）
+            self.add_edge("tools", "agent")
+        else:
+            # 没有工具，检查是否继续
+            self.add_conditional_edges(
+                source="agent",
+                condition=self.should_continue,
+                path_map={
+                    "continue": "agent",
+                    "end": END
+                }
+            )
+        
+        logger.info(f"Built basic agent graph (memory={'enabled' if self.enable_memory else 'disabled'})")
+    
+    def _should_use_tools(self, state: AgentState) -> str:
+        """判断是否需要使用工具"""
+        messages = state.get("messages", [])
+        if not messages:
+            return "end"
+        
+        last_message = messages[-1]
+        
+        # 检查是否是AI消息并包含工具调用
+        if isinstance(last_message, AIMessage) and hasattr(last_message, "tool_calls"):
+            tool_calls = last_message.tool_calls
+            if tool_calls:
+                return "tools"
+        
+        return "end"
+    
+    async def _agent_node(self, state: AgentState) -> Dict[str, Any]:
+        """
+        Agent核心节点
+        
+        执行LLM调用和工具执行
+        """
+        # 准备消息
+        messages = list(state.get("messages", []))
+        
+        # 添加系统提示词（如果第一条消息不是系统消息）
+        formatted_messages = []
+        if self.system_prompt:
+            from langchain_core.messages import SystemMessage
+            formatted_messages.append(SystemMessage(content=self.system_prompt))
+        
+        # 添加现有消息（已经是LangChain消息格式）
+        formatted_messages.extend(messages)
+        
+        # 调用LLM（异步）
+        try:
+            response = await self.llm_client.achat(
+                messages=formatted_messages,
+                tools=self.tools if self.tools else None
+            )
+            
+            # response现在是AIMessage类型
+            ai_message = response
+            
+            # 获取工具调用
+            tool_calls = []
+            if hasattr(ai_message, "tool_calls") and ai_message.tool_calls:
+                for tc in ai_message.tool_calls:
+                    # tool_calls可能是字典或对象
+                    if isinstance(tc, dict):
+                        tool_calls.append({
+                            "id": tc.get("id", ""),
+                            "name": tc.get("name", ""),
+                            "arguments": tc.get("args", {})
+                        })
+                    else:
+                        # LangChain ToolCall对象
+                        tool_calls.append({
+                            "id": getattr(tc, "id", ""),
+                            "name": getattr(tc, "name", ""),
+                            "arguments": getattr(tc, "args", {}) if hasattr(tc, "args") else {}
+                        })
+            
+            # 更新状态
+            new_messages = [ai_message]
+            
+            # 如果有工具调用，执行工具
+            if tool_calls:
+                tool_results = []
+                for tool_call in tool_calls:
+                    tool_name = tool_call.get("name", "")
+                    tool_args = tool_call.get("arguments", {})
+                    
+                    # 查找对应的工具
+                    tool = next((t for t in self.tools if t.name == tool_name), None)
+                    if tool:
+                        try:
+                            import asyncio
+                            # 执行工具（支持同步和异步）
+                            if asyncio.iscoroutinefunction(tool.invoke):
+                                result = await tool.ainvoke(tool_args)
+                            else:
+                                result = tool.invoke(tool_args)
+                            
+                            tool_message = ToolMessage(
+                                content=str(result),
+                                tool_call_id=tool_call.get("id", "")
+                            )
+                            new_messages.append(tool_message)
+                            tool_results.append({
+                                "tool_name": tool_name,
+                                "arguments": tool_args,
+                                "result": result,
+                                "success": True
+                            })
+                        except Exception as e:
+                            logger.error(f"Tool execution error: {e}")
+                            tool_message = ToolMessage(
+                                content=f"Error: {str(e)}",
+                                tool_call_id=tool_call.get("id", "")
+                            )
+                            new_messages.append(tool_message)
+                            tool_results.append({
+                                "tool_name": tool_name,
+                                "arguments": tool_args,
+                                "error": str(e),
+                                "success": False
+                            })
+                
+                return {
+                    "messages": new_messages,
+                    "tool_calls": tool_calls,
+                    "tool_results": tool_results,
+                    "iteration_count": state.get("iteration_count", 0) + 1,
+                    "should_continue": True
+                }
+            else:
+                # 没有工具调用，结束
+                return {
+                    "messages": new_messages,
+                    "iteration_count": state.get("iteration_count", 0) + 1,
+                    "should_continue": False
+                }
+                
+        except Exception as e:
+            logger.error(f"Agent node error: {e}")
+            error_message = AIMessage(content=f"抱歉，我遇到了一个错误：{str(e)}")
+            return {
+                "messages": [error_message],
+                "error": str(e),
+                "should_continue": False
+            }
+    
+    def _format_messages_for_llm(self, messages: List[Any]) -> List[Dict[str, Any]]:
+        """
+        格式化消息为LLM客户端需要的格式
+        
+        Args:
+            messages: 原始消息列表
+            
+        Returns:
+            格式化后的消息列表
+        """
+        formatted = []
+        
+        # 添加系统提示
+        formatted.append({"role": "system", "content": self.system_prompt})
+        
+        for msg in messages:
+            if isinstance(msg, dict):
+                role = msg.get("role", msg.get("type", "user"))
+                content = msg.get("content", "")
+                formatted.append({"role": role, "content": content})
+            elif isinstance(msg, BaseMessage):
+                # LangChain消息类型
+                if isinstance(msg, HumanMessage):
+                    formatted.append({"role": "user", "content": msg.content})
+                elif isinstance(msg, AIMessage):
+                    formatted.append({"role": "assistant", "content": msg.content})
+                elif isinstance(msg, ToolMessage):
+                    formatted.append({"role": "tool", "content": msg.content})
+            else:
+                # 其他类型，尝试转换
+                formatted.append({"role": "user", "content": str(msg)})
+        
+        return formatted
+    
+    def compile(
+        self,
+        checkpointer: Optional[SqliteSaver] = None,
+        **kwargs
+    ) -> StateGraph:
+        """
+        编译Agent图
+        
+        Args:
+            checkpointer: 检查点保存器
+            **kwargs: 其他编译参数
+            
+        Returns:
+            编译后的图
+        """
+        return super().compile(checkpointer=checkpointer, **kwargs)
+    
     def get_agent_info(self) -> Dict[str, Any]:
         """获取智能体信息"""
         return {
             "name": self.agent_name,
             "nodes": list(self.nodes.keys()),
-            "llm_config": self.llm_config,
-            "tools_config": self.tools_config
+            "tools": [t.name for t in self.tools] if self.tools else [],
+            "max_iterations": self.max_iterations,
+            "has_checkpointer": self.checkpointer is not None
         }
