@@ -2,9 +2,9 @@
 """
 @File    : langgraph_api.py
 @Time    : 2025/12/9 14:41
-@Desc    : 
+@Desc    : 服务接口
 """
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -12,7 +12,6 @@ import uvicorn
 
 from ..workflows.rag_workflow import create_rag_workflow
 from ..workflows.conversation_workflow import create_conversation_workflow
-from langchain_core.messages import HumanMessage, AIMessage
 from ..knowledge.kb_manager import KnowledgeBaseManager
 from ..llm.config.llm_config import LLMConfig
 from ..tools.transports import TransportType
@@ -47,6 +46,7 @@ class ChatRequest(BaseModel):
     knowledge_base_name: Optional[str] = "default"
     use_knowledge_base: bool = True
     tools: Optional[List[str]] = None  # 选中的工具名称列表
+    model: Optional[str] = None  # 选中的模型名称
 
 
 class ChatResponse(BaseModel):
@@ -90,6 +90,9 @@ async def root():
             "/chat",
             "/knowledge_base/create",
             "/knowledge_base/search",
+            "/knowledge_base/list",
+            "/models/list",
+            "/tools/list",
             "/health"
         ]
     }
@@ -113,7 +116,7 @@ async def chat(request: ChatRequest):
             kb = knowledge_base_manager.get_knowledge_base(request.knowledge_base_name)
 
         # 获取LLM客户端
-        llm_client = llm_config.create_client()
+        llm_client = llm_config.create_client(model=request.model)
 
         # 获取选中的工具
         selected_tools = None
@@ -147,7 +150,7 @@ async def chat(request: ChatRequest):
             # 使用普通对话工作流
             workflow = create_conversation_workflow(llm_client, knowledge_base=kb, tools=selected_tools)
 
-            # 准备消息（转换为LangChain格式）
+            # 准备消息
             messages = []
             if request.history:
                 for msg in request.history:
@@ -158,7 +161,7 @@ async def chat(request: ChatRequest):
                     elif role == "assistant":
                         from langchain_core.messages import AIMessage
                         messages.append(AIMessage(content=content))
-            
+
             # 添加当前用户消息
             messages.append(HumanMessage(content=request.query))
 
@@ -299,6 +302,29 @@ async def list_tools():
     try:
         tools = await mcp_client.list_tools()
         return {"tools": [t.dict() for t in tools]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/models/list")
+async def list_models():
+    """列出可用模型"""
+    try:
+        # 从LLM配置中获取可用模型
+        available_models = []
+
+        # 获取所有提供商的模型
+        providers = llm_config.config.get("providers", {})
+        for provider_name, provider_config in providers.items():
+            model_name = provider_config.get("model_name") or provider_config.get("default_model")
+            if model_name:
+                available_models.append({
+                    "name": model_name,
+                    "provider": provider_name,
+                    "display_name": f"{model_name} ({provider_name})"
+                })
+
+        return {"models": available_models}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -37,6 +37,9 @@ class SessionManager:
         # 知识库相关
         "knowledge_bases": [],
 
+        # 模型相关
+        "available_models": [],
+
         # UI状态
         "sidebar_expanded": True,
         "current_page": "智能体对话",
@@ -71,6 +74,11 @@ class SessionManager:
         st.session_state.available_tools = tools
 
     @classmethod
+    def update_models(cls, models: list):
+        """更新模型列表"""
+        st.session_state.available_models = models
+
+    @classmethod
     def set_current_page(cls, page: str):
         """设置当前页面"""
         st.session_state.current_page = page
@@ -101,6 +109,31 @@ class APIManager:
         except Exception as e:
             st.error(f"加载工具失败: {str(e)}")
             SessionManager.update_tools([])
+            return False
+
+    @staticmethod
+    async def load_models() -> bool:
+        """加载模型列表"""
+        try:
+            # 导入requests库来调用模型列表端点
+            import requests
+            from src.webui.chat_ui import BASE_URL
+
+            # 调用模型列表端点
+            response = requests.get(f"{BASE_URL}/models/list", timeout=5)
+
+            if response.status_code == 200:
+                models_data = response.json()
+                SessionManager.update_models(models_data.get("models", []))
+                return True
+            else:
+                st.error(f"获取模型列表失败 (状态码: {response.status_code})")
+                SessionManager.update_models([])
+                return False
+
+        except Exception as e:
+            st.error(f"加载模型失败: {str(e)}")
+            SessionManager.update_models([])
             return False
 
     @staticmethod
@@ -255,9 +288,10 @@ class UIManager:
         with st.spinner("刷新数据中..."):
             kb_success = await APIManager.load_knowledge_bases()
             tools_success = await APIManager.load_tools()
+            models_success = await APIManager.load_models()
             health_success = await APIManager.check_api_health()
 
-            if kb_success and tools_success and health_success:
+            if kb_success and tools_success and models_success and health_success:
                 st.success("✅ 数据刷新完成")
             else:
                 st.warning("⚠️ 部分数据刷新失败")
@@ -290,8 +324,9 @@ async def initialize_app():
     if api_healthy and not st.session_state.knowledge_bases:
         try:
             await APIManager.load_knowledge_bases()
+            await APIManager.load_models()
         except Exception as e:
-            print(f"加载知识库失败: {str(e)}")
+            print(f"加载基础数据失败: {str(e)}")
 
     # 如果API不健康，不加载数据，但允许应用继续运行
     if not api_healthy:

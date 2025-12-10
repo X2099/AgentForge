@@ -2,7 +2,7 @@
 """
 @File    : llm_config.py
 @Time    : 2025/12/9 10:47
-@Desc    : 
+@Desc    : LLM配置类
 """
 import os
 import json
@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 from dotenv import load_dotenv
 import logging
+from ..llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -85,17 +86,17 @@ class LLMConfig:
             "default_provider": "openai",
             "default_model": "gpt-3.5-turbo",
             "providers": {
-                "openai": {
-                    "api_key": "${OPENAI_API_KEY}",
+                "deepseek": {
+                    "api_key": "${DEEPSEEK_API_KEY}",
                     "base_url": None,
-                    "default_model": "gpt-3.5-turbo",
+                    "default_model": "deepseek-chat",
                     "timeout": 30,
                     "max_retries": 3
                 },
-                "anthropic": {
-                    "api_key": "${ANTHROPIC_API_KEY}",
+                "openai": {
+                    "api_key": "${OPENAI_API_KEY}",
                     "base_url": None,
-                    "default_model": "claude-3-sonnet",
+                    "default_model": "gpt-5",
                     "timeout": 30,
                     "max_retries": 3
                 },
@@ -150,10 +151,20 @@ class LLMConfig:
             }
         return {}
 
+    def _find_provider_by_model(self, model_name: str) -> Optional[str]:
+        """根据模型名称找到对应的提供商"""
+        providers = self.config.get("providers", {})
+        for provider_name, provider_config in providers.items():
+            # 检查model_name和default_model两个字段
+            configured_model = provider_config.get("model_name") or provider_config.get("default_model")
+            if configured_model == model_name:
+                return provider_name
+        return None
+
     def create_client(self,
                       provider: Optional[str] = None,
                       model: Optional[str] = None,
-                      **kwargs) -> "LLMClient":
+                      **kwargs) -> LLMClient:
         """
         创建LLM客户端（基于LangChain）
 
@@ -165,7 +176,10 @@ class LLMConfig:
         Returns:
             LLMClient实例
         """
-        from ..llm_client import LLMClient
+
+        # 如果提供了model但没有provider，尝试根据model找到对应的provider
+        if model and not provider:
+            provider = self._find_provider_by_model(model)
 
         # 使用配置或参数
         provider = provider or self.get_default_provider()
@@ -184,7 +198,8 @@ class LLMConfig:
 
         # 从环境变量读取API密钥
         if "api_key" in client_config and client_config["api_key"]:
-            if isinstance(client_config["api_key"], str) and client_config["api_key"].startswith("${") and client_config["api_key"].endswith("}"):
+            if isinstance(client_config["api_key"], str) and client_config["api_key"].startswith("${") and \
+                    client_config["api_key"].endswith("}"):
                 env_var = client_config["api_key"][2:-1]
                 client_config["api_key"] = os.getenv(env_var, client_config["api_key"])
 

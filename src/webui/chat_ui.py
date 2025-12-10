@@ -4,12 +4,8 @@
 @Time    : 2025/12/9 15:54
 @Desc    : 
 """
-import asyncio
-
 import requests
 import streamlit as st
-
-from src.api.langgraph_api import chat
 
 BASE_URL = "http://127.0.0.1:7861"
 
@@ -23,7 +19,7 @@ def check_api_health():
         return False
 
 
-def process_user_input(user_input: str):
+def process_user_input(user_input: str, selected_model: str = None):
     """处理用户输入并生成回复"""
     # 获取当前设置
     selected_tools = st.session_state.get('selected_tools', [])
@@ -42,7 +38,8 @@ def process_user_input(user_input: str):
                     "history": history,
                     "knowledge_base_name": st.session_state.current_kb,
                     "use_knowledge_base": use_kb,
-                    "tools": selected_tools
+                    "tools": selected_tools,
+                    "model": selected_model
                 }
 
                 response = requests.post(f"{BASE_URL}/chat", json=payload, timeout=60)
@@ -108,10 +105,23 @@ def main():
         st.header("设置")
 
         # 模型选择
-        model_option = st.selectbox(
-            "选择模型",
-            ["deepseek-chat", "gpt-4", "本地模型"]
-        )
+        available_models = st.session_state.get("available_models", [])
+        if available_models:
+            model_options = [model["display_name"] for model in available_models]
+            model_names = [model["name"] for model in available_models]
+
+            selected_index = st.selectbox(
+                "选择模型",
+                range(len(model_options)),
+                format_func=lambda x: model_options[x]
+            )
+            selected_model = model_names[selected_index]
+        else:
+            # 如果没有获取到模型，使用默认选项
+            selected_model = st.selectbox(
+                "选择模型",
+                ["deepseek-chat", "gpt-4", "本地模型"]
+            )
 
         # 知识库选择
         kb_names = [kb["name"] for kb in st.session_state.get("knowledge_bases", [])]
@@ -455,8 +465,7 @@ def main():
         })
 
         # 处理回复
-        process_user_input(user_input.strip())
+        process_user_input(user_input.strip(), selected_model)
 
     # 添加少量底部空间
     st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
-
