@@ -51,10 +51,10 @@ class KnowledgeBaseUploader:
         """获取可用的知识库列表"""
         try:
             import requests
-            from src.webui.chat_ui import BASE_URL
+            from .. import API_BASE_URL
 
             # 调用API获取知识库列表
-            response = requests.get(f"{BASE_URL}/knowledge_base/list", timeout=5)
+            response = requests.get(f"{API_BASE_URL}/knowledge_base/list", timeout=5)
             if response.status_code == 200:
                 data = response.json()
                 kbs = {}
@@ -79,10 +79,10 @@ class KnowledgeBaseUploader:
         """获取知识库信息"""
         try:
             import requests
-            from src.webui.chat_ui import BASE_URL
+            from .. import API_BASE_URL
 
             # 调用API获取知识库统计信息
-            response = requests.get(f"{BASE_URL}/knowledge_base/list", timeout=5)
+            response = requests.get(f"{API_BASE_URL}/knowledge_base/list", timeout=5)
             if response.status_code == 200:
                 data = response.json()
                 for kb in data.get("knowledge_bases", []):
@@ -200,14 +200,14 @@ class KnowledgeBaseUploader:
                 try:
                     # 调用API上传文档
                     import requests
-                    from src.webui.chat_ui import BASE_URL
+                    from .. import API_BASE_URL
 
                     payload = {
                         "kb_name": kb_name,
                         "file_paths": file_paths
                     }
 
-                    response = requests.post(f"{BASE_URL}/knowledge_base/upload_documents", json=payload, timeout=300)
+                    response = requests.post(f"{API_BASE_URL}/knowledge_base/upload_documents", json=payload, timeout=300)
 
                     if response.status_code == 200:
                         result = response.json()

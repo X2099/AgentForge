@@ -38,7 +38,7 @@ def create_app() -> FastAPI:
 def _init_dependencies(app: FastAPI):
     """初始化全局依赖"""
     # 创建全局组件
-    knowledge_base_manager = KnowledgeBaseManager()
+    knowledge_base_manager = KnowledgeBaseManager(use_database=True)
     system_config = SystemConfig()
     mcp_client = MCPClient(
         transport_type=TransportType.HTTP,

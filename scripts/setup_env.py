@@ -106,7 +106,7 @@ def create_env_file():
 
 # OpenAI API 配置
 OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_API_BASE_URL=https://api.openai.com/v1
 
 # Anthropic API 配置 (可选)
 ANTHROPIC_API_KEY=your_anthropic_api_key_here

@@ -64,7 +64,6 @@ class RAGWorkflow(BaseGraph):
         self.add_node("generator", self._generator_node)
         
         # 构建流程（线性流程）
-        self.set_entry_point(START)
         self.add_edge(START, "query_analyzer")
         self.add_edge("query_analyzer", "retriever")
         self.add_edge("retriever", "reranker")

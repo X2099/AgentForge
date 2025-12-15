@@ -7,15 +7,16 @@
 import requests
 import streamlit as st
 
-BASE_URL = "http://127.0.0.1:7861"
+from . import API_BASE_URL
 
 
 def check_api_health():
     """检查API服务器健康状态"""
     try:
-        response = requests.get(f"{BASE_URL}/health", timeout=5)
+        response = requests.get(f"{API_BASE_URL}/health", timeout=5)
         return response.status_code == 200
-    except:
+    except Exception as e:
+        st.error(f"检查API服务器健康状态异常：{e}")
         return False
 
 
@@ -41,8 +42,8 @@ def process_user_input(user_input: str, selected_model: str = None):
                     "tools": selected_tools,
                     "model": selected_model
                 }
-
-                response = requests.post(f"{BASE_URL}/chat", json=payload, timeout=60)
+                st.info(payload)
+                response = requests.post(f"{API_BASE_URL}/chat", json=payload, timeout=60)
 
                 if response.status_code == 200:
                     # 解析响应
@@ -90,7 +91,7 @@ def process_user_input(user_input: str, selected_model: str = None):
 
 def main():
     """主界面"""
-    st.title("🤖 LangGraph-AgentForge")
+    st.title("🤖 AgentForge")
     st.caption("基于LangGraph实现的智能对话系统")
 
     # 检查API状态
@@ -106,22 +107,15 @@ def main():
 
         # 模型选择
         available_models = st.session_state.get("available_models", [])
-        if available_models:
-            model_options = [model["display_name"] for model in available_models]
-            model_names = [model["name"] for model in available_models]
+        model_options = [model["display_name"] for model in available_models]
+        model_names = [model["name"] for model in available_models]
 
-            selected_index = st.selectbox(
-                "选择模型",
-                range(len(model_options)),
-                format_func=lambda x: model_options[x]
-            )
-            selected_model = model_names[selected_index]
-        else:
-            # 如果没有获取到模型，使用默认选项
-            selected_model = st.selectbox(
-                "选择模型",
-                ["deepseek-chat", "gpt-4", "本地模型"]
-            )
+        selected_index = st.selectbox(
+            "选择模型",
+            range(len(model_options)),
+            format_func=lambda x: model_options[x]
+        )
+        selected_model = model_names[selected_index]
 
         # 知识库选择
         kb_names = [kb["name"] for kb in st.session_state.get("knowledge_bases", [])]
@@ -132,10 +126,9 @@ def main():
         )
         st.session_state.current_kb = selected_kb
 
-        use_kb = st.checkbox("使用知识库", value=True)
+        st.session_state.use_kb = st.checkbox("使用知识库", value=False)
 
         # 工具选择
-        selected_tools = []
         if st.session_state.available_tools:
             st.subheader("🔧 工具设置")
 
@@ -145,23 +138,12 @@ def main():
                 st.session_state.selected_tools = tool_names.copy()
 
             # 工具选择控制
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                if st.button("✅ 全选", key="select_all_tools"):
-                    st.session_state.selected_tools = tool_names.copy()
-                    st.rerun()
-            with col2:
-                if st.button("❌ 清空", key="clear_tools"):
-                    st.session_state.selected_tools = []
-                    st.rerun()
-            with col3:
-                if st.button("🔄 重置", key="reset_tools"):
-                    # 重新加载工具列表
-                    import asyncio
-                    from src.webui.streamlit_app import APIManager
-                    asyncio.run(APIManager.load_tools())
-                    st.session_state.selected_tools = tool_names.copy()
-                    st.rerun()
+            if st.button("🔄 刷新", key="reset_tools"):
+                # 重新加载工具列表
+                import asyncio
+                from src.webui.streamlit_app import APIManager
+                asyncio.run(APIManager.load_tools())
+                st.session_state.selected_tools = tool_names.copy()
 
             # 多选框选择工具
             selected_tools = st.multiselect(
@@ -171,6 +153,7 @@ def main():
                 help="选择助手可以使用的工具，不选择则仅使用对话能力",
                 key="tool_selector"
             )
+
             st.session_state.selected_tools = selected_tools
 
             # 显示选择统计
@@ -221,10 +204,6 @@ def main():
                 st.metric("当前知识库", "未选择")
         else:
             st.metric("知识库状态", "未加载")
-
-    # 获取工具选择状态
-    selected_tools = st.session_state.get('selected_tools', [])
-    use_kb = st.session_state.get('use_kb', True)
 
     # ChatGPT风格的样式定义
     st.markdown("""

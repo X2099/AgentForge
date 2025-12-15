@@ -20,9 +20,9 @@ class KnowledgeBaseCreator:
         if self._vector_store_options is None:
             try:
                 import requests
-                from src.webui.chat_ui import BASE_URL
+                from .. import API_BASE_URL
 
-                response = requests.get(f"{BASE_URL}/vector-stores/list", timeout=5)
+                response = requests.get(f"{API_BASE_URL}/vector-stores/list", timeout=5)
                 if response.status_code == 200:
                     data = response.json()
                     self._vector_store_options = data.get("vector_stores", [])
@@ -47,9 +47,9 @@ class KnowledgeBaseCreator:
         if self._embedder_options is None:
             try:
                 import requests
-                from src.webui.chat_ui import BASE_URL
+                from .. import API_BASE_URL
 
-                response = requests.get(f"{BASE_URL}/embedders/list", timeout=5)
+                response = requests.get(f"{API_BASE_URL}/embedders/list", timeout=5)
                 if response.status_code == 200:
                     data = response.json()
                     self._embedder_options = data.get("embedders", [])
@@ -356,7 +356,7 @@ class KnowledgeBaseCreator:
 
                     # 调用API创建空的知识库
                     import requests
-                    from src.webui.chat_ui import BASE_URL
+                    from .. import API_BASE_URL
 
                     payload = {
                         "kb_name": kb_name,
@@ -365,7 +365,7 @@ class KnowledgeBaseCreator:
                         # 注意：不包含file_paths，创建空的知识库
                     }
 
-                    response = requests.post(f"{BASE_URL}/knowledge_base/create", json=payload, timeout=60)
+                    response = requests.post(f"{API_BASE_URL}/knowledge_base/create", json=payload, timeout=60)
 
                     if response.status_code == 200:
                         result = response.json()

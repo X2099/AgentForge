@@ -95,7 +95,7 @@ class KnowledgeBaseOverview:
             st.error(f"❌ 知识库 '{kb_name}' 不存在")
             return
 
-        stats = kb.get_stats()
+        stats = kb.get_stats(detailed=True)
 
         with st.expander(f"📋 知识库详情: {kb_name}", expanded=True):
             col1, col2 = st.columns(2)
@@ -206,12 +206,12 @@ class KnowledgeBaseOverview:
         """执行删除操作"""
         try:
             import requests
-            from ..chat_ui import BASE_URL
+            from .. import API_BASE_URL
 
             with st.spinner("🗑️ 正在删除知识库..."):
                 # 调用删除API
                 params = {"delete_data": delete_data}
-                response = requests.delete(f"{BASE_URL}/knowledge_base/{kb_name}", params=params, timeout=30)
+                response = requests.delete(f"{API_BASE_URL}/knowledge_base/{kb_name}", params=params, timeout=30)
 
                 if response.status_code == 200:
                     result = response.json()

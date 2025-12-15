@@ -112,8 +112,7 @@ class LangGraphAgentBuilder(AgentGraph):
             self.add_node("tools", tool_executor)
         
         # 构建流程
-        self.set_entry_point(START)
-        
+
         # 设置入口流程
         if self.enable_memory and self.memory_manager:
             # 有记忆：先检索记忆，再截断消息，然后执行agent

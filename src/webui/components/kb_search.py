@@ -63,10 +63,10 @@ class KnowledgeBaseSearch:
         if self._available_kbs is None:
             try:
                 import requests
-                from src.webui.chat_ui import BASE_URL
+                from .. import API_BASE_URL
 
                 # 调用API获取知识库列表
-                response = requests.get(f"{BASE_URL}/knowledge_base/list", timeout=5)
+                response = requests.get(f"{API_BASE_URL}/knowledge_base/list", timeout=5)
                 if response.status_code == 200:
                     data = response.json()
                     kbs = {}
@@ -94,7 +94,7 @@ class KnowledgeBaseSearch:
         with st.spinner("🔍 正在搜索中..."):
             try:
                 import requests
-                from src.webui.chat_ui import BASE_URL
+                from .. import API_BASE_URL
 
                 # 调用后端搜索API
                 params = {
@@ -103,7 +103,7 @@ class KnowledgeBaseSearch:
                     "k": top_k
                 }
 
-                response = requests.post(f"{BASE_URL}/knowledge_base/search", params=params, timeout=30)
+                response = requests.post(f"{API_BASE_URL}/knowledge_base/search", params=params, timeout=30)
 
                 if response.status_code == 200:
                     data = response.json()

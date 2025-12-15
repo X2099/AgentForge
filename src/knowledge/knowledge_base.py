@@ -244,9 +244,12 @@ class KnowledgeBase:
             logger.error(f"搜索失败: {str(e)}")
             return []
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self, detailed: bool = False) -> Dict[str, Any]:
         """获取知识库统计信息"""
-        vector_store_stats = self.vector_store.get_collection_stats()
+        if detailed and hasattr(self.vector_store, 'get_detailed_stats'):
+            vector_store_stats = self.vector_store.get_detailed_stats()
+        else:
+            vector_store_stats = self.vector_store.get_collection_stats()
 
         stats = {
             "name": self.name,

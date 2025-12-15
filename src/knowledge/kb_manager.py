@@ -11,6 +11,7 @@ from pathlib import Path
 from datetime import datetime
 import time
 import logging
+import threading
 
 from .document_loaders import Document
 from .knowledge_base import KnowledgeBase
@@ -35,6 +36,11 @@ class KnowledgeBaseManager:
 
         self.use_database = use_database
         self.knowledge_bases: Dict[str, KnowledgeBase] = {}
+
+        # 统计信息缓存
+        self.stats_cache: Dict[str, Dict[str, Any]] = {}
+        self.cache_lock = threading.RLock()
+        self.cache_ttl = 300  # 缓存5分钟
 
         # 初始化数据库
         if self.use_database:
@@ -185,7 +191,7 @@ class KnowledgeBaseManager:
         result = []
 
         for name, kb in self.knowledge_bases.items():
-            stats = kb.get_stats()
+            stats = self._get_cached_stats(name, kb)
             result.append({
                 "name": name,
                 "description": stats.get("description", ""),
@@ -195,6 +201,36 @@ class KnowledgeBaseManager:
             })
 
         return result
+
+    def _get_cached_stats(self, name: str, kb: KnowledgeBase) -> Dict[str, Any]:
+        """获取缓存的统计信息"""
+        with self.cache_lock:
+            now = time.time()
+
+            # 检查缓存是否有效
+            if name in self.stats_cache:
+                cached_data = self.stats_cache[name]
+                if now - cached_data.get("timestamp", 0) < self.cache_ttl:
+                    return cached_data["stats"]
+
+            # 缓存失效或不存在，重新获取（使用快速模式）
+            stats = kb.get_stats(detailed=False)
+
+            # 存储到缓存
+            self.stats_cache[name] = {
+                "stats": stats,
+                "timestamp": now
+            }
+
+            return stats
+
+    def invalidate_stats_cache(self, name: Optional[str] = None):
+        """使统计信息缓存失效"""
+        with self.cache_lock:
+            if name:
+                self.stats_cache.pop(name, None)
+            else:
+                self.stats_cache.clear()
 
     def delete_knowledge_base(self, name: str, delete_data: bool = False):
         """
@@ -235,6 +271,9 @@ class KnowledgeBaseManager:
 
         # 从内存中移除
         del self.knowledge_bases[name]
+
+        # 使缓存失效
+        self.invalidate_stats_cache(name)
 
     def _save_config(self, name: str, config: Dict[str, Any]):
         """保存配置到文件"""
@@ -294,6 +333,9 @@ class KnowledgeBaseManager:
                     "tokens_processed": 0  # 可以后续扩展
                 }
                 self.db.record_document_operation(kb_name, operation)
+
+        # 使缓存失效
+        self.invalidate_stats_cache(kb_name)
 
         return stats
 

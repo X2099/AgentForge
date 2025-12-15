@@ -308,11 +308,8 @@ async def search_knowledge_base(kb_name: str, query: str, k: int = 5):
         if not knowledge_base_manager:
             raise HTTPException(status_code=500, detail="知识库管理器未初始化")
 
-        kb = knowledge_base_manager.get_knowledge_base(kb_name)
-        if not kb:
-            raise HTTPException(status_code=404, detail=f"知识库 {kb_name} 不存在")
-
-        results = kb.search(query, k=k)
+        # 使用manager的search方法，这样会记录搜索历史
+        results = knowledge_base_manager.search(kb_name, query, k=k)
 
         # 格式化结果
         formatted_results = []

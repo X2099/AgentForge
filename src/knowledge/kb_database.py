@@ -332,6 +332,11 @@ class KnowledgeBaseDatabase:
     def record_search(self, kb_id: str, search_data: Dict[str, Any]) -> bool:
         """记录搜索历史"""
         try:
+            # 检查kb_id是否存在
+            if not self.get_knowledge_base(kb_id):
+                logger.warning(f"记录搜索历史失败: kb_id {kb_id} 不存在于knowledge_bases表中")
+                return False
+
             with sqlite3.connect(str(self.db_path)) as conn:
                 conn.execute("""
                     INSERT INTO search_history

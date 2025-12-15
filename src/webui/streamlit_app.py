@@ -7,20 +7,17 @@
 import sys
 import asyncio
 from pathlib import Path
-from typing import Dict, Any, Optional
-
+import requests
 import streamlit as st
 
 # 添加项目路径
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from src.api.langgraph_api import (
-    chat, create_knowledge_base, list_knowledge_bases,
-    search_knowledge_base, list_tools, call_tool
-)
+from src.api.langgraph_api import list_knowledge_bases, list_tools
 from src.webui.knowledge_base_ui import main as kb_main
 from src.webui.chat_ui import main as chat_main
 from src.webui.tools_ui import main as tools_main
+from src.webui import API_BASE_URL
 
 
 class SessionManager:
@@ -29,7 +26,7 @@ class SessionManager:
     DEFAULT_STATE = {
         # 对话相关
         "conversation_history": [],
-        "current_kb": "default",
+        "current_kb": "",
 
         # 工具相关
         "available_tools": [],
@@ -115,12 +112,8 @@ class APIManager:
     async def load_models() -> bool:
         """加载模型列表"""
         try:
-            # 导入requests库来调用模型列表端点
-            import requests
-            from src.webui.chat_ui import BASE_URL
-
             # 调用模型列表端点
-            response = requests.get(f"{BASE_URL}/models/list", timeout=5)
+            response = requests.get(f"{API_BASE_URL}/models/list", timeout=5)
 
             if response.status_code == 200:
                 models_data = response.json()
@@ -140,12 +133,8 @@ class APIManager:
     async def check_api_health() -> bool:
         """检查API健康状态"""
         try:
-            # 导入requests库来调用健康检查端点
-            import requests
-            from src.webui.chat_ui import BASE_URL
-
             # 调用专门的健康检查端点
-            response = requests.get(f"{BASE_URL}/health", timeout=5)
+            response = requests.get(f"{API_BASE_URL}/health", timeout=5)
 
             if response.status_code == 200:
                 try:
@@ -188,8 +177,8 @@ class UIManager:
             layout="wide",
             initial_sidebar_state="expanded",
             menu_items={
-                'Get Help': 'https://github.com/your-repo/LangGraph-AgentForge',
-                'Report a bug': 'https://github.com/your-repo/LangGraph-AgentForge/issues',
+                'Get Help': 'https://github.com/X2099/AgentForge',
+                'Report a bug': 'https://github.com/X2099/AgentForge/issues',
                 'About': '''
                     ## AgentForge
                     基于LangGraph实现的智能对话系统
@@ -309,7 +298,7 @@ class UIManager:
             st.caption("📊 版本: v1.0.0")
 
         with col3:
-            st.caption("🔗 [GitHub](https://github.com/your-repo/LangGraph-AgentForge)")
+            st.caption("🔗 [GitHub](https://github.com/X2099/LangGraph-AgentForge)")
 
 
 async def initialize_app():
@@ -325,6 +314,7 @@ async def initialize_app():
         try:
             await APIManager.load_knowledge_bases()
             await APIManager.load_models()
+            await APIManager.load_tools()
         except Exception as e:
             print(f"加载基础数据失败: {str(e)}")
 

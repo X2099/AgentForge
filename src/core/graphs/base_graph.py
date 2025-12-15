@@ -161,11 +161,21 @@ class BaseGraph(ABC):
 
     def set_entry_point(self, node: str):
         """
-        设置入口节点
-        
+        设置入口节点（已弃用）
+
+        注意：在LangGraph 1.x中，不再需要显式调用set_entry_point。
+        直接使用add_edge(START, "first_node")即可自动设置入口点。
+
         Args:
             node: 入口节点名称
         """
+        import warnings
+        warnings.warn(
+            "set_entry_point() is deprecated in LangGraph 1.x. "
+            "Entry point is automatically set when using add_edge(START, 'first_node').",
+            DeprecationWarning,
+            stacklevel=2
+        )
         self.graph.set_entry_point(node)
         self._entry_point_set = True
 
