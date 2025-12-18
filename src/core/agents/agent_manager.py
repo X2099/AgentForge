@@ -5,7 +5,6 @@
 @Desc    : 
 """
 from typing import Dict, Any, List, Optional
-import asyncio
 from datetime import datetime
 import json
 from pathlib import Path
@@ -14,75 +13,34 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 import sqlite3
 
 from .langgraph_agent import LangGraphAgentBuilder
-from ..orchestrator import GraphOrchestrator
-from ...memory import MemoryManager, MemoryConfig
-from ...memory import MemoryManager, MemoryConfig
+from ...memory import CheckpointMemoryManager, CheckpointMemoryConfig
 
 
 class AgentManager:
     """智能体管理器"""
 
     def __init__(self,
-                 db_path: str = "./data/agents/agents.db",
-                 memory_config: Optional[MemoryConfig] = None):
+                 db_path: str = "./data/agentforge.db"):
         """
         初始化智能体管理器
 
         Args:
             db_path: 数据库路径
-            memory_config: 记忆配置
         """
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self.memory_config = memory_config or MemoryConfig()
-        # 如果配置中没有checkpointer，使用默认的MemorySaver
-        if self.memory_config.checkpointer is None:
-            from langgraph.checkpoint.memory import MemorySaver
-            self.memory_config.checkpointer = MemorySaver()
-        self.memory_manager = MemoryManager(self.memory_config)
+        self.memory_config = CheckpointMemoryConfig()
+        # 使用默认的MemorySaver
+        from langgraph.checkpoint.memory import MemorySaver
+        self.memory_config.checkpointer = MemorySaver()
+        self.memory_manager = CheckpointMemoryManager(
+            checkpointer=self.memory_config.checkpointer,
+            config=self.memory_config
+        )
 
-        # 活跃智能体
-        self.active_agents: Dict[str, Dict[str, Any]] = {}
-
-        # 智能体模板
-        self.agent_templates: Dict[str, Dict[str, Any]] = {
-            "basic_chat": {
-                "type": "basic",
-                "description": "基础对话智能体",
-                "llm_config": {
-                    "provider": "openai",
-                    "model": "gpt-3.5-turbo"
-                },
-                "tools_config": {
-                    "transport": "stdio"
-                }
-            },
-            "research_assistant": {
-                "type": "research",
-                "description": "研究分析智能体",
-                "llm_config": {
-                    "provider": "openai",
-                    "model": "gpt-4"
-                },
-                "tools_config": {
-                    "transport": "stdio",
-                    "enabled_tools": ["web_search", "knowledge_base_search"]
-                }
-            },
-            "coding_assistant": {
-                "type": "coding",
-                "description": "代码开发智能体",
-                "llm_config": {
-                    "provider": "openai",
-                    "model": "gpt-4"
-                },
-                "tools_config": {
-                    "transport": "stdio",
-                    "enabled_tools": ["code_executor", "file_reader"]
-                }
-            }
-        }
+        # 活跃用户会话
+        self.active_user_sessions: Dict[str, Dict[str, Any]] = {}
 
         # 初始化数据库
         self._init_database()
@@ -92,327 +50,325 @@ class AgentManager:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        # 创建智能体配置表
+        # 创建用户表
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS agents (
-                agent_id TEXT PRIMARY KEY,
-                name TEXT,
-                type TEXT,
-                config TEXT,
-                created_at TIMESTAMP,
-                updated_at TIMESTAMP,
-                is_active BOOLEAN DEFAULT 1
+            CREATE TABLE IF NOT EXISTS users (
+                user_id TEXT PRIMARY KEY,
+                username TEXT UNIQUE,
+                email TEXT UNIQUE,
+                password_hash TEXT NOT NULL,  -- 密码哈希
+                display_name TEXT,
+                avatar_url TEXT,
+                preferences TEXT,  -- JSON格式的偏好设置
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_active BOOLEAN DEFAULT 1,
+                last_login_at TIMESTAMP
             )
         """)
 
-        # 创建会话记录表
+        # 创建用户对话会话表
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS agent_sessions (
+            CREATE TABLE IF NOT EXISTS user_sessions (
                 session_id TEXT PRIMARY KEY,
-                agent_id TEXT,
                 user_id TEXT,
-                started_at TIMESTAMP,
-                ended_at TIMESTAMP,
+                title TEXT,  -- 会话标题
+                model_name TEXT,  -- 使用的模型
+                kb_name TEXT,  -- 使用的知识库
+                graph_type TEXT, -- 工作流/Agent类型
+                tools_config TEXT,  -- 工具配置，JSON格式
                 total_messages INTEGER DEFAULT 0,
-                metadata TEXT,
-                FOREIGN KEY (agent_id) REFERENCES agents(agent_id)
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_active BOOLEAN DEFAULT 1,
+                metadata TEXT,  -- 额外元数据，JSON格式
+                FOREIGN KEY (user_id) REFERENCES users(user_id)
             )
         """)
 
         conn.commit()
         conn.close()
 
-    def create_agent(self,
-                     name: str,
-                     agent_type: str = "basic_chat",
-                     config_overrides: Optional[Dict[str, Any]] = None) -> str:
-        """创建智能体"""
-        # 获取模板
-        template = self.agent_templates.get(agent_type, self.agent_templates["basic_chat"])
+    # ===== 用户管理方法 =====
 
-        # 合并配置
-        config = template.copy()
-        if config_overrides:
-            config.update(config_overrides)
+    def create_user(self,
+                    username: str,
+                    password: str,
+                    email: str = None,
+                    display_name: str = None) -> str:
+        """创建用户"""
+        import uuid
+        import hashlib
+        user_id = str(uuid.uuid4())
 
-        # 生成智能体ID
-        agent_id = f"agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{name}"
+        # 对密码进行哈希处理（生产环境应该使用bcrypt）
+        password_hash = hashlib.sha256(password.encode()).hexdigest()
 
-        # 保存到数据库
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute("""
-            INSERT INTO agents (agent_id, name, type, config, created_at, updated_at)
+            INSERT INTO users (user_id, username, email, password_hash, display_name, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (
-            agent_id,
-            name,
-            agent_type,
-            json.dumps(config, ensure_ascii=False),
-            datetime.now().isoformat(),
+            user_id,
+            username,
+            email,
+            password_hash,
+            display_name or username,
             datetime.now().isoformat()
         ))
 
         conn.commit()
         conn.close()
 
-        return agent_id
+        return user_id
 
-    def build_agent(self, agent_id: str) -> LangGraphAgentBuilder:
-        """构建智能体"""
-        # 从数据库加载配置
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+    def verify_password(self, username: str, password: str) -> Optional[Dict[str, Any]]:
+        """验证用户密码"""
+        import hashlib
 
-        cursor.execute("SELECT name, type, config FROM agents WHERE agent_id = ?", (agent_id,))
-        row = cursor.fetchone()
+        user = self.get_user_by_username(username)
+        if not user:
+            return None
 
-        if not row:
-            raise ValueError(f"Agent not found: {agent_id}")
+        # 验证密码哈希
+        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        if user.get('password_hash') == password_hash:
+            return user
 
-        name, agent_type, config_str = row
-        config = json.loads(config_str)
+        return None
 
-        conn.close()
-
-        # 创建智能体构建器
-        builder = LangGraphAgentBuilder(
-            agent_name=name,
-            llm_config=config.get("llm_config", {}),
-            tools_config=config.get("tools_config", {})
-        )
-
-        # 根据类型构建不同的智能体
-        if agent_type == "research":
-            builder.build_research_agent()
-        elif agent_type == "coding":
-            builder.build_coding_agent()
-        else:
-            builder.build_basic_agent()
-
-        return builder
-
-    async def start_agent_session(self,
-                                  agent_id: str,
-                                  user_id: Optional[str] = None,
-                                  initial_state: Optional[Dict[str, Any]] = None,
-                                  thread_id: Optional[str] = None) -> str:
-        """启动智能体会话"""
-        from langchain_core.messages import HumanMessage
-        
-        # 构建智能体
-        builder = self.build_agent(agent_id)
-
-        # 创建检查点保存器（用于状态持久化）
-        import os
-        os.makedirs("./data/agents", exist_ok=True)
-        conn = sqlite3.connect(f"./data/agents/{agent_id}_sessions.db")
-        checkpointer = SqliteSaver.from_conn(conn, table_name="checkpoints")
-
-        # 编译智能体（使用checkpointer）
-        compiled_agent = builder.compile(checkpointer=checkpointer)
-
-        # 生成会话ID和thread_id
-        session_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        thread_id = thread_id or session_id
-
-        # 初始化状态（使用LangGraph标准格式）
-        state = {
-            "thread_id": thread_id,
-            "session_id": session_id,
-            "user_id": user_id,
-            "messages": [],
-            "current_step": "start",
-            "next_node": None,
-            "agent_type": "default",
-            "agent_role": "assistant",
-            "available_tools": [],
-            "should_continue": True,
-            "max_iterations": builder.max_iterations,
-            "iteration_count": 0,
-            "retry_count": 0,
-            **(initial_state or {})
-        }
-
-        # 保存会话记录
+    def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """获取用户信息"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute("""
-            INSERT INTO agent_sessions (session_id, agent_id, user_id, started_at, metadata)
-            VALUES (?, ?, ?, ?, ?)
+            SELECT user_id, username, email, password_hash, display_name, avatar_url,
+                   preferences, created_at, updated_at, is_active, last_login_at
+            FROM users WHERE user_id = ?
+        """, (user_id,))
+
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            return {
+                "user_id": row[0],
+                "username": row[1],
+                "email": row[2],
+                "password_hash": row[3],  # 内部使用，不返回给前端
+                "display_name": row[4],
+                "avatar_url": row[5],
+                "preferences": row[6],
+                "created_at": row[7],
+                "updated_at": row[8],
+                "is_active": bool(row[9]),
+                "last_login_at": row[10]
+            }
+        return None
+
+    def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
+        """通过用户名获取用户信息"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT user_id, username, email, password_hash, display_name, avatar_url,
+                   preferences, created_at, updated_at, is_active, last_login_at
+            FROM users WHERE username = ? AND is_active = 1
+        """, (username,))
+
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            return {
+                "user_id": row[0],
+                "username": row[1],
+                "email": row[2],
+                "password_hash": row[3],  # 内部使用，不返回给前端
+                "display_name": row[4],
+                "avatar_url": row[5],
+                "preferences": row[6],
+                "created_at": row[7],
+                "updated_at": row[8],
+                "is_active": bool(row[9]),
+                "last_login_at": row[10]
+            }
+        return None
+
+    def update_user_login(self, user_id: str):
+        """更新用户最后登录时间"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            UPDATE users
+            SET last_login_at = ?, updated_at = ?
+            WHERE user_id = ?
         """, (
-            session_id,
-            agent_id,
-            user_id,
             datetime.now().isoformat(),
-            json.dumps({"initial_state": initial_state or {}}, ensure_ascii=False)
+            datetime.now().isoformat(),
+            user_id
         ))
 
         conn.commit()
         conn.close()
 
-        # 存储活跃智能体
-        self.active_agents[session_id] = {
-            "agent_id": agent_id,
-            "compiled_agent": compiled_agent,
-            "checkpointer": checkpointer,
-            "state": state,
-            "started_at": datetime.now().isoformat(),
-            "message_count": 0
-        }
+    # ===== 用户会话管理方法 =====
 
-        return session_id
+    def create_user_session(self,
+                            user_id: str,
+                            title: str = None,
+                            model_name: str = None,
+                            kb_name: str = None,
+                            graph_type: str = None,
+                            tools_config: List[str] = None) -> str:
+        """创建用户会话"""
+        import uuid
+        session_id = str(uuid.uuid4())
 
-    async def process_message(self,
-                              session_id: str,
-                              message: str,
-                              config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """处理消息"""
-        if session_id not in self.active_agents:
-            raise ValueError(f"Session not found: {session_id}")
+        if title is None:
+            title = f"对话 {datetime.now().strftime('%m-%d %H:%M')}"
 
-        from langchain_core.messages import HumanMessage
-        
-        agent_info = self.active_agents[session_id]
-        compiled_agent = agent_info["compiled_agent"]
-        thread_id = agent_info["state"].get("thread_id", session_id)
-
-        # 准备输入（使用LangGraph标准格式）
-        input_state = {
-            "messages": [HumanMessage(content=message)]
-        }
-
-        # 执行智能体（使用checkpointer，通过config传递thread_id）
-        config = config or {"configurable": {"thread_id": thread_id}}
-
-        try:
-            result = await compiled_agent.ainvoke(
-                input_state,
-                config=config
-            )
-
-            # 更新状态
-            agent_info["state"] = result
-            agent_info["message_count"] += 1
-
-            # 提取响应（从messages中提取最后一条AI消息）
-            response = ""
-            messages = result.get("messages", [])
-            if messages:
-                last_msg = messages[-1]
-                if hasattr(last_msg, "content"):
-                    response = last_msg.content
-                elif isinstance(last_msg, dict):
-                    response = last_msg.get("content", "")
-            
-            # 如果没有响应，尝试从其他字段提取
-            if not response:
-                response = result.get("final_response", "") or result.get("answer", "") or result.get("response", "")
-
-            return {
-                "session_id": session_id,
-                "response": response,
-                "state": result,
-                "success": True,
-                "has_tool_calls": bool(result.get("tool_calls")),
-                "tool_results": result.get("tool_results", [])
-            }
-
-        except Exception as e:
-            return {
-                "session_id": session_id,
-                "response": f"处理失败: {str(e)}",
-                "error": str(e),
-                "success": False
-            }
-
-    async def end_session(self, session_id: str):
-        """结束会话"""
-        if session_id in self.active_agents:
-            # 更新会话记录
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                UPDATE agent_sessions 
-                SET ended_at = ?, total_messages = ?
-                WHERE session_id = ?
-            """, (
-                datetime.now().isoformat(),
-                self.active_agents[session_id]["message_count"],
-                session_id
-            ))
-
-            conn.commit()
-            conn.close()
-
-            # 移除活跃智能体
-            del self.active_agents[session_id]
-
-    def get_agent_status(self, agent_id: str) -> Dict[str, Any]:
-        """获取智能体状态"""
-        # 统计会话信息
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute("""
-            SELECT 
-                COUNT(*) as total_sessions,
-                COUNT(CASE WHEN ended_at IS NULL THEN 1 END) as active_sessions,
-                SUM(total_messages) as total_messages
-            FROM agent_sessions 
-            WHERE agent_id = ?
-        """, (agent_id,))
+            INSERT INTO user_sessions (session_id, user_id, title, model_name, kb_name, graph_type, tools_config, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            session_id,
+            user_id,
+            title,
+            model_name,
+            kb_name,
+            graph_type,
+            json.dumps(tools_config or []),
+            datetime.now().isoformat()
+        ))
 
-        stats = cursor.fetchone()
-
-        cursor.execute("SELECT name, type, created_at FROM agents WHERE agent_id = ?", (agent_id,))
-        agent_info = cursor.fetchone()
-
+        conn.commit()
         conn.close()
 
-        if not agent_info:
-            return {"status": "not_found"}
+        return session_id
 
-        name, agent_type, created_at = agent_info
-
-        return {
-            "agent_id": agent_id,
-            "name": name,
-            "type": agent_type,
-            "created_at": created_at,
-            "total_sessions": stats[0] if stats else 0,
-            "active_sessions": stats[1] if stats else 0,
-            "total_messages": stats[2] if stats else 0,
-            "is_active": agent_id in [a["agent_id"] for a in self.active_agents.values()]
-        }
-
-    def list_agents(self, include_inactive: bool = False) -> List[Dict[str, Any]]:
-        """列出智能体"""
+    def get_user_sessions(self, user_id: str, graph_type: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """获取用户的会话列表"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        sql = "SELECT agent_id, name, type, created_at, is_active FROM agents"
-        if not include_inactive:
-            sql += " WHERE is_active = 1"
+        cursor.execute("""
+            SELECT session_id, user_id, title, model_name, kb_name, tools_config,
+                   total_messages, created_at, updated_at, is_active, metadata
+            FROM user_sessions
+            WHERE user_id = ? AND graph_type = ? AND is_active = 1
+            ORDER BY updated_at DESC
+            LIMIT ?
+        """, (user_id, graph_type, limit))
 
-        cursor.execute(sql)
         rows = cursor.fetchall()
+        conn.close()
 
-        agents = []
+        sessions = []
         for row in rows:
-            agent_id, name, agent_type, created_at, is_active = row
-
-            agents.append({
-                "agent_id": agent_id,
-                "name": name,
-                "type": agent_type,
-                "created_at": created_at,
-                "is_active": bool(is_active),
-                "status": self.get_agent_status(agent_id)
+            sessions.append({
+                "session_id": row[0],
+                "user_id": row[1],
+                "title": row[2],
+                "model_name": row[3],
+                "kb_name": row[4],
+                "tools_config": json.loads(row[5]) if row[5] else [],
+                "total_messages": row[6],
+                "created_at": row[7],
+                "updated_at": row[8],
+                "is_active": bool(row[9]),
+                "metadata": row[10]
             })
 
+        return sessions
+
+    def get_user_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """获取单个会话详情"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT session_id, user_id, title, model_name, kb_name, tools_config,
+                   total_messages, created_at, updated_at, is_active, metadata
+            FROM user_sessions WHERE session_id = ?
+        """, (session_id,))
+
+        row = cursor.fetchone()
         conn.close()
-        return agents
+
+        if row:
+            return {
+                "session_id": row[0],
+                "user_id": row[1],
+                "title": row[2],
+                "model_name": row[3],
+                "kb_name": row[4],
+                "tools_config": json.loads(row[5]) if row[5] else [],
+                "total_messages": row[6],
+                "created_at": row[7],
+                "updated_at": row[8],
+                "is_active": bool(row[9]),
+                "metadata": row[10]
+            }
+        return None
+
+    def update_user_session(self,
+                            session_id: str,
+                            title: str = None,
+                            total_messages: int = None,
+                            metadata: Dict[str, Any] = None):
+        """更新用户会话"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        updates = []
+        params = []
+
+        if title is not None:
+            updates.append("title = ?")
+            params.append(title)
+
+        if total_messages is not None:
+            updates.append("total_messages = ?")
+            params.append(total_messages)
+
+        if metadata is not None:
+            updates.append("metadata = ?")
+            params.append(json.dumps(metadata))
+
+        if updates:
+            updates.append("updated_at = ?")
+            params.append(datetime.now().isoformat())
+
+            query = f"UPDATE user_sessions SET {', '.join(updates)} WHERE session_id = ?"
+            params.append(session_id)
+
+            cursor.execute(query, params)
+            conn.commit()
+
+        conn.close()
+
+    def delete_user_session(self, session_id: str):
+        """删除用户会话（软删除）"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            UPDATE user_sessions
+            SET is_active = 0, updated_at = ?
+            WHERE session_id = ?
+        """, (
+            datetime.now().isoformat(),
+            session_id
+        ))
+
+        conn.commit()
+        conn.close()

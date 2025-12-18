@@ -6,7 +6,8 @@
 """
 from typing import Dict, Any, List, Callable, Optional, TYPE_CHECKING
 from abc import ABC, abstractmethod
-from langgraph.graph import StateGraph, END, START
+from langgraph.graph import StateGraph, END
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 if TYPE_CHECKING:
@@ -69,7 +70,7 @@ class BaseGraph(ABC):
             checkpointer: Optional[BaseCheckpointSaver] = None,
             interrupt_before: Optional[List[str]] = None,
             interrupt_after: Optional[List[str]] = None
-    ) -> StateGraph:
+    ) -> CompiledStateGraph:
         """
         编译图
         
@@ -139,24 +140,27 @@ class BaseGraph(ABC):
     def add_conditional_edges(
             self,
             source: str,
-            condition: Callable,
-            path_map: Dict[str, str],
-            then: Optional[str] = None
+            path: Optional[Callable] = None,
+            path_map: Optional[Dict[str, str]] = None,
+            condition: Optional[Callable] = None,
     ):
         """
-        添加条件边
+        添加条件边（对齐最新LangGraph签名：source, path, path_map）
         
         Args:
             source: 源节点
-            condition: 条件函数（接受state，返回路由键）
-            path_map: 路由映射 {路由键: 目标节点}
-            then: 默认目标节点
+            path: 路由函数（接受state，返回路由键或节点名）
+            path_map: 路由映射 {路由键: 目标节点}，可选
+            condition: 兼容旧参数名；若提供且path未提供，则使用condition作为path
         """
+        route_fn = path or condition
+        if route_fn is None:
+            raise ValueError("add_conditional_edges 需要提供 path 或 condition 之一")
+
         self.conditional_edges.append({
             "source": source,
-            "path": condition,
-            "path_map": path_map,
-            "then": then
+            "path": route_fn,
+            "path_map": path_map
         })
 
     def set_entry_point(self, node: str):

@@ -3,8 +3,13 @@
 @File    : langgraph_agent.py
 @Time    : 2025/12/9 12:27
 @Desc    : 基于LangGraph标准的Agent构建器
+
+注意：此文件使用旧的memory实现，已被基于checkpointer的实现替代。
+建议使用 src/agents/react_agent.py 中的新实现。
 """
 from typing import Dict, Any, List, Optional
+
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import StateGraph, END, START
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
@@ -13,10 +18,13 @@ from langchain_core.tools import BaseTool
 from ..graphs.base_graph import AgentGraph
 from ..state.base_state import AgentState
 from ..nodes.tool_nodes import create_tool_executor_node
-from ...llm.llm_client import LLMClient
+from langchain_core.language_models.chat_models import BaseChatModel
 from src.config.system_config import SystemConfig
 from ...tools.tool_manager import ToolManager, get_tool_manager
-from ...memory import MemoryManager, create_memory_retrieval_node, create_memory_truncation_node
+from ...memory import (
+    CheckpointMemoryManager, CheckpointMemoryConfig,
+    create_checkpoint_memory_retrieval_node, create_checkpoint_memory_summarization_node
+)
 
 import logging
 
@@ -33,24 +41,24 @@ class LangGraphAgentBuilder(AgentGraph):
     def __init__(
         self,
         agent_name: str,
-        llm_client: Optional[LLMClient] = None,
+        llm_client: Optional[BaseChatModel] = None,
         llm_config: Optional[Dict[str, Any]] = None,
         tools: Optional[List[BaseTool]] = None,
         tool_manager: Optional[ToolManager] = None,
-        memory_manager: Optional[MemoryManager] = None,
+        checkpointer: Optional[BaseCheckpointSaver] = None,
         system_prompt: Optional[str] = None,
-        max_iterations: int = 15,
-        enable_memory: bool = True
+        max_iterations: int = 15
     ):
         """
         初始化智能体构建器
-        
+
         Args:
             agent_name: 智能体名称
             llm_client: LLM客户端（如果提供，优先使用）
             llm_config: LLM配置（如果未提供llm_client）
             tools: 工具列表（直接提供）
             tool_manager: 工具管理器（如果不提供tools，则使用此管理器的工具）
+            checkpointer: 检查点保存器
             system_prompt: 系统提示词
             max_iterations: 最大迭代次数
         """
@@ -77,9 +85,15 @@ class LangGraphAgentBuilder(AgentGraph):
             config_manager = SystemConfig()
             self.llm_client = config_manager.create_client(**(llm_config or {}))
         
-        # 记忆管理器
-        self.memory_manager = memory_manager
-        self.enable_memory = enable_memory and memory_manager is not None
+        # 记忆管理器 - 基于checkpointer
+        self.checkpointer = checkpointer
+        self.memory_config = CheckpointMemoryConfig()
+        self.memory_manager = CheckpointMemoryManager(
+            checkpointer=self.checkpointer,
+            config=self.memory_config,
+            llm_client=self.llm_client
+        )
+        self.enable_memory = True
         
         logger.info(f"Initialized agent builder: {agent_name} with {len(self.tools)} tools, memory={'enabled' if self.enable_memory else 'disabled'}")
     
@@ -100,11 +114,11 @@ class LangGraphAgentBuilder(AgentGraph):
         
         # 如果启用记忆，添加记忆节点
         if self.enable_memory and self.memory_manager:
-            memory_retrieval = create_memory_retrieval_node(self.memory_manager, self.llm_client)
-            memory_truncation = create_memory_truncation_node(self.memory_manager)
+            memory_retrieval = create_checkpoint_memory_retrieval_node(self.memory_manager)
+            memory_summarization = create_checkpoint_memory_summarization_node(self.memory_manager)
             
             self.add_node("memory_retrieval", memory_retrieval)
-            self.add_node("memory_truncation", memory_truncation)
+            self.add_node("memory_summarization", memory_summarization)
         
         # 如果有工具，添加工具执行节点
         if self.tools:
@@ -117,8 +131,8 @@ class LangGraphAgentBuilder(AgentGraph):
         if self.enable_memory and self.memory_manager:
             # 有记忆：先检索记忆，再截断消息，然后执行agent
             self.add_edge(START, "memory_retrieval")
-            self.add_edge("memory_retrieval", "memory_truncation")
-            self.add_edge("memory_truncation", "agent")
+            self.add_edge("memory_retrieval", "memory_summarization")
+            self.add_edge("memory_summarization", "agent")
         else:
             # 无记忆：直接执行agent
             self.add_edge(START, "agent")
@@ -128,7 +142,7 @@ class LangGraphAgentBuilder(AgentGraph):
             # 检查是否有工具调用
             self.add_conditional_edges(
                 source="agent",
-                condition=self._should_use_tools,
+                path=self._should_use_tools,
                 path_map={
                     "tools": "tools",
                     "end": END
@@ -140,7 +154,7 @@ class LangGraphAgentBuilder(AgentGraph):
             # 没有工具，检查是否继续
             self.add_conditional_edges(
                 source="agent",
-                condition=self.should_continue,
+                path=self.should_continue,
                 path_map={
                     "continue": "agent",
                     "end": END
@@ -185,10 +199,11 @@ class LangGraphAgentBuilder(AgentGraph):
         
         # 调用LLM（异步）
         try:
-            response = await self.llm_client.achat(
-                messages=formatted_messages,
-                tools=self.tools if self.tools else None
-            )
+            model = self.llm_client
+            if self.tools:
+                response = await model.bind_tools(self.tools).ainvoke(formatted_messages)
+            else:
+                response = await model.ainvoke(formatted_messages)
             
             # response现在是AIMessage类型
             ai_message = response

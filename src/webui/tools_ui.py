@@ -6,7 +6,7 @@
 """
 import asyncio
 import streamlit as st
-from src.api.langgraph_api import list_tools, call_tool
+from src.api.api_compat import list_tools, call_tool
 
 
 async def load_tools():

@@ -6,11 +6,19 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import router, init_dependencies
+from .routes import (
+    system_router, init_system_dependencies,
+    chat_router, init_chat_dependencies,
+    kb_router, init_kb_dependencies,
+    tool_router, init_tool_dependencies,
+    auth_router, init_auth_dependencies,
+    user_router, init_user_dependencies
+)
 from ..knowledge.kb_manager import KnowledgeBaseManager
 from ..config.system_config import SystemConfig
 from ..tools.transports import TransportType
 from ..tools.mcp_client import MCPClient
+from ..core.agents.agent_manager import AgentManager
 
 
 def create_app() -> FastAPI:
@@ -27,7 +35,12 @@ def create_app() -> FastAPI:
     )
 
     # 包含路由
-    app.include_router(router)
+    app.include_router(system_router, tags=["system"])
+    app.include_router(chat_router, tags=["chat"])
+    app.include_router(kb_router, tags=["knowledge_base"])
+    app.include_router(tool_router, tags=["tools"])
+    app.include_router(auth_router, tags=["auth"])
+    app.include_router(user_router, tags=["user"])
 
     # 初始化全局依赖
     _init_dependencies(app)
@@ -40,13 +53,20 @@ def _init_dependencies(app: FastAPI):
     # 创建全局组件
     knowledge_base_manager = KnowledgeBaseManager(use_database=True)
     system_config = SystemConfig()
-    mcp_client = MCPClient(
-        transport_type=TransportType.HTTP,
-        transport_config={"url": "http://localhost:8000/mcp"}
-    )
+    # mcp_client = MCPClient(
+    #     transport_type=TransportType.HTTP,
+    #     transport_config={"url": "http://localhost:8000/mcp"}
+    # )
+    mcp_client = None
+    agent_manager = AgentManager()  # 创建智能体管理器
 
     # 初始化路由依赖
-    init_dependencies(knowledge_base_manager, system_config, mcp_client)
+    init_system_dependencies(knowledge_base_manager, system_config)
+    init_chat_dependencies(knowledge_base_manager, system_config, mcp_client, agent_manager)
+    init_kb_dependencies(knowledge_base_manager)
+    init_tool_dependencies(mcp_client)
+    init_auth_dependencies(agent_manager)
+    init_user_dependencies(agent_manager)
 
 
 def run_server(host: str = "0.0.0.0", port: int = 7861):

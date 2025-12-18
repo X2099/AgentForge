@@ -7,9 +7,21 @@ from .main import create_app, run_server
 from .models import (
     ChatRequest, ChatResponse,
     KnowledgeBaseRequest, KnowledgeBaseResponse,
-    DocumentUploadRequest
+    DocumentUploadRequest,
+    LoginRequest, LoginResponse,
+    RegisterRequest, RegisterResponse,
+    UserResponse,
+    UserSessionCreateRequest, UserSessionResponse,
+    UserStatsResponse
 )
-from .routes import router
+from .routes import (
+    system_router,
+    chat_router,
+    kb_router,
+    tool_router,
+    auth_router,
+    user_router
+)
 
 __all__ = [
     # 应用创建和运行
@@ -22,7 +34,20 @@ __all__ = [
     "KnowledgeBaseRequest",
     "KnowledgeBaseResponse",
     "DocumentUploadRequest",
+    "LoginRequest",
+    "LoginResponse",
+    "RegisterRequest",
+    "RegisterResponse",
+    "UserResponse",
+    "UserSessionCreateRequest",
+    "UserSessionResponse",
+    "UserStatsResponse",
 
     # 路由
-    "router"
+    "system_router",
+    "chat_router",
+    "kb_router",
+    "tool_router",
+    "auth_router",
+    "user_router"
 ]

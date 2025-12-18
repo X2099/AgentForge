@@ -199,7 +199,7 @@ AgentForge/
 │   ├── __init__.py
 │   ├── api/                     # API 服务层
 │   │   ├── __init__.py
-│   │   └── langgraph_api.py     # FastAPI 应用
+│   │   └── api_compat.py         # API兼容性层
 │   ├── core/                    # 核心业务逻辑
 │   │   ├── __init__.py
 │   │   ├── orchestrator.py      # 工作流编排器
@@ -280,10 +280,8 @@ AgentForge/
 │   │       └── token_counter.py # Token 计数
 │   ├── memory/                  # 记忆系统
 │   │   ├── __init__.py
-│   │   ├── memory_manager.py    # 记忆管理器
-│   │   ├── memory_nodes.py      # 记忆节点
-│   │   ├── MEMORY_REFACTORING.md
-│   │   └── MEMORY_REFACTORING_SUMMARY.md
+│   │   ├── checkpoint_memory_manager.py    # 基于checkpointer的记忆管理器
+│   │   ├── checkpoint_memory_nodes.py      # 基于checkpointer的记忆节点
 │   ├── tools/                   # 工具系统
 │   │   ├── __init__.py
 │   │   ├── tool_manager.py      # 工具管理器

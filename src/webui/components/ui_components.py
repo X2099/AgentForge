@@ -57,11 +57,11 @@ class DataTable:
 
     @staticmethod
     def create(
-        data: List[Dict],
-        columns: Optional[List[str]] = None,
-        title: str = "",
-        searchable: bool = False,
-        selectable: bool = False
+            data: List[Dict],
+            columns: Optional[List[str]] = None,
+            title: str = "",
+            searchable: bool = False,
+            selectable: bool = False
     ):
         """创建数据表格"""
         if not data:
@@ -131,23 +131,23 @@ class ActionButton:
 
     @staticmethod
     def create(
-        label: str,
-        on_click: Callable,
-        type: str = "secondary",
-        icon: str = "",
-        help_text: str = "",
-        disabled: bool = False,
-        key: str = None
+            label: str,
+            on_click: Callable,
+            type: str = "secondary",
+            icon: str = "",
+            help_text: str = "",
+            disabled: bool = False,
+            key: str = None
     ):
         """创建操作按钮"""
         button_label = f"{icon} {label}" if icon else label
 
         if st.button(
-            button_label,
-            type=type,
-            disabled=disabled,
-            help=help_text,
-            key=key
+                button_label,
+                type=type,
+                disabled=disabled,
+                help=help_text,
+                key=key
         ):
             try:
                 result = on_click()
@@ -287,11 +287,11 @@ class EmptyState:
 
     @staticmethod
     def show(
-        icon: str = "📭",
-        title: str = "暂无数据",
-        description: str = "",
-        action_label: str = "",
-        action_callback: Callable = None
+            icon: str = "📭",
+            title: str = "暂无数据",
+            description: str = "",
+            action_label: str = "",
+            action_callback: Callable = None
     ):
         """显示空状态"""
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -312,11 +312,11 @@ class ConfirmationDialog:
 
     @staticmethod
     def show(
-        title: str,
-        message: str,
-        confirm_label: str = "确认",
-        cancel_label: str = "取消",
-        danger: bool = False
+            title: str,
+            message: str,
+            confirm_label: str = "确认",
+            cancel_label: str = "取消",
+            danger: bool = False
     ) -> bool:
         """显示确认对话框"""
         st.warning(f"⚠️ {title}")

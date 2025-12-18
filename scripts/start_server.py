@@ -72,7 +72,7 @@ def start_api_server(host="127.0.0.1", port=7861, reload=False):
     print(f"API文档: http://{host}:{port}/docs")
 
     uvicorn.run(
-        "src.api.langgraph_api:app",
+        "src.api.api_compat:app",
         host=host,
         port=port,
         reload=reload,
@@ -122,13 +122,13 @@ def start_mcp_server(host="127.0.0.1", port=8000):
             # 3. 注册内置工具
             enabled_tools = config.get_enabled_tools()
 
-            if "calculator" in enabled_tools:
-                try:
-                    calculator = CalculatorTool()
-                    registry.register_builtin_tool(calculator)
-                    print("✅ 注册计算器工具")
-                except Exception as e:
-                    print(f"⚠️  注册计算器工具失败: {e}")
+            # if "calculator" in enabled_tools:
+            #     try:
+            #         calculator = CalculatorTool()
+            #         registry.register_builtin_tool(calculator)
+            #         print("✅ 注册计算器工具")
+            #     except Exception as e:
+            #         print(f"⚠️  注册计算器工具失败: {e}")
 
             if "web_search" in enabled_tools:
                 try:
@@ -138,13 +138,13 @@ def start_mcp_server(host="127.0.0.1", port=8000):
                 except Exception as e:
                     print(f"⚠️  注册网页搜索工具失败: {e}")
 
-            if "knowledge_base_search" in enabled_tools:
-                try:
-                    kb_search = KnowledgeBaseTool()
-                    registry.register_builtin_tool(kb_search)
-                    print("✅ 注册知识库搜索工具")
-                except Exception as e:
-                    print(f"⚠️  注册知识库搜索工具失败: {e}")
+            # if "knowledge_base_search" in enabled_tools:
+            #     try:
+            #         kb_search = KnowledgeBaseTool()
+            #         registry.register_builtin_tool(kb_search)
+            #         print("✅ 注册知识库搜索工具")
+            #     except Exception as e:
+            #         print(f"⚠️  注册知识库搜索工具失败: {e}")
 
             # 4. 获取服务器配置并更新端口
             server_config = config.get_server_config()

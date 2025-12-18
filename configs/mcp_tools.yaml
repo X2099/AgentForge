@@ -7,7 +7,7 @@ mcp:
 
 server:
   transport: "http"  # 或 "http"
-  stdio: {}
+  stdio: { }
   http:
     host: "localhost"
     port: 8000
@@ -20,13 +20,11 @@ server:
 
 tools:
   enabled:
-    - "calculator"
     - "web_search"
-    - "knowledge_base_search"
     - "file_reader"
     - "code_executor"
 
-  calculator: {}
+  calculator: { }
 
   web_search:
     api_key: "${GOOGLE_SEARCH_API_KEY}"

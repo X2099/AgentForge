@@ -4,6 +4,7 @@
 @Time    : 2025/12/9 15:54
 @Desc    : 
 """
+from datetime import datetime
 import requests
 import streamlit as st
 
@@ -20,11 +21,114 @@ def check_api_health():
         return False
 
 
-def process_user_input(user_input: str, selected_model: str = None):
+def fetch_user_sessions(user_id, mode, limit=50):
+    """从API获取用户会话列表"""
+    try:
+        response = requests.get(f"{API_BASE_URL}/users/{user_id}/sessions", params={"mode": mode, "limit": limit},
+                                timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"获取会话列表失败: {response.status_code}")
+            return []
+    except Exception as e:
+        print(f"获取会话列表异常: {str(e)}")
+        return []
+
+
+def create_session_via_api(user_id, mode, title=None, model_name=None):
+    """通过API创建新会话"""
+    try:
+        data = {
+            "user_id": user_id,
+            "title": title or f"对话 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "model_name": model_name,
+            "mode": mode
+        }
+        response = requests.post(f"{API_BASE_URL}/user-sessions", json=data, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"创建会话失败: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"创建会话异常: {str(e)}")
+        return None
+
+
+def delete_session_via_api(session_id):
+    """通过API删除会话"""
+    try:
+        response = requests.delete(f"{API_BASE_URL}/user-sessions/{session_id}", timeout=10)
+        return response.status_code == 200
+    except Exception as e:
+        print(f"删除会话异常: {str(e)}")
+        return False
+
+
+def get_session_messages_via_api(session_id, limit=100):
+    """从API获取会话消息"""
+    try:
+        response = requests.get(f"{API_BASE_URL}/sessions/{session_id}/messages", params={"limit": limit},
+                                timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"获取会话消息失败: {response.status_code}")
+            return []
+    except Exception as e:
+        print(f"获取会话消息异常: {str(e)}")
+        return []
+
+
+def render_api_status():
+    """渲染系统状态信息"""
+    st.markdown("### 🔌 系统状态")
+
+    # API健康状态
+    api_healthy = check_api_health()
+    if api_healthy:
+        st.success("🟢 API服务正常")
+    else:
+        st.error("🔴 API服务离线")
+        st.caption("请检查API服务器是否运行")
+
+    # 知识库状态
+    kb_count = len(st.session_state.get('knowledge_bases', []))
+    if kb_count > 0:
+        st.info(f"📚 已加载 {kb_count} 个知识库")
+    else:
+        st.warning("📚 未加载知识库")
+
+    # 模型状态
+    model_count = len(st.session_state.get('available_models', []))
+    if model_count > 0:
+        st.info(f"🤖 已加载 {model_count} 个模型")
+    else:
+        st.caption("🤖 模型信息暂未加载")
+
+    # 显示最后更新时间
+    last_update = st.session_state.get('last_update')
+    if last_update:
+        from datetime import datetime
+        if isinstance(last_update, (int, float)):
+            update_time = datetime.fromtimestamp(last_update).strftime('%H:%M:%S')
+        else:
+            update_time = "最近"
+        st.caption(f"最后更新: {update_time}")
+
+    # 如果API不健康，显示警告信息
+    if not api_healthy:
+        st.warning("⚠️ API服务不可用。智能对话功能将受限。")
+        st.caption("启动命令: `python scripts/start_server.py --mode api`")
+
+
+def process_user_input(user_input: str, mode: str, selected_model: str = None):
     """处理用户输入并生成回复"""
     # 获取当前设置
     selected_tools = st.session_state.get('selected_tools', [])
     use_kb = st.session_state.get('use_kb', True)
+    current_session_id = st.session_state.get('current_session_id')
 
     # 生成助手回复
     with st.chat_message("assistant"):
@@ -33,16 +137,20 @@ def process_user_input(user_input: str, selected_model: str = None):
                 # 准备历史消息（不包括当前用户消息，因为它已经在历史中了）
                 history = st.session_state.conversation_history[:-1]
 
-                # 调用API
+                # 调用API，传递会话ID和用户ID（如果已登录）
                 payload = {
                     "query": user_input,
+                    "conversation_id": current_session_id,  # 传递会话ID
+                    "user_id": st.session_state.current_user.get("user_id") if st.session_state.get(
+                        "user_authenticated") and st.session_state.get("current_user") else None,  # 传递用户ID
                     "history": history,
                     "knowledge_base_name": st.session_state.current_kb,
                     "use_knowledge_base": use_kb,
                     "tools": selected_tools,
-                    "model": selected_model
+                    "model": selected_model,
+                    "mode": mode
                 }
-                st.info(payload)
+
                 response = requests.post(f"{API_BASE_URL}/chat", json=payload, timeout=60)
 
                 if response.status_code == 200:
@@ -50,6 +158,12 @@ def process_user_input(user_input: str, selected_model: str = None):
                     response_data = response.json()
                     assistant_message = response_data.get("response", "")
                     sources = response_data.get("sources", [])
+                    response_metadata = response_data.get("response_metadata")
+                    conversation_id = response_data.get("conversation_id")
+
+                    # 更新当前会话ID（如果API返回了新的会话ID）
+                    if conversation_id and conversation_id != current_session_id:
+                        st.session_state.current_session_id = conversation_id
 
                     # 显示回复
                     if assistant_message:
@@ -57,22 +171,54 @@ def process_user_input(user_input: str, selected_model: str = None):
                     else:
                         st.warning("助手没有返回有效回复")
 
+                    # 创建列来并排显示来源和元数据
+                    col1, col2 = st.columns(2)
+
                     # 显示来源
-                    if sources:
-                        with st.expander("📚 信息来源"):
-                            for i, source in enumerate(sources, 1):
-                                st.caption(f"**来源 {i}:** {source.get('source', '未知')}")
-                                content = source.get("content", "")
-                                if len(content) > 200:
-                                    content = content[:200] + "..."
-                                st.caption(content)
+                    with col1:
+                        if sources:
+                            with st.expander("📚 信息来源"):
+                                for i, source in enumerate(sources, 1):
+                                    st.caption(f"**来源 {i}:** {source.get('source', '未知')}")
+                                    content = source.get("content", "")
+                                    if len(content) > 200:
+                                        content = content[:200] + "..."
+                                    st.caption(content)
+
+                    # 显示响应元数据
+                    with col2:
+                        if response_metadata:
+                            with st.expander("🔍 响应元数据"):
+                                st.caption(f"**查询:** {response_metadata.get('query', 'N/A')[:50]}...")
+                                st.caption(f"**文档数量:** {len(response_metadata.get('documents', []))}")
+                                st.caption(f"**来源数量:** {len(response_metadata.get('sources', []))}")
+                                st.caption(f"**上下文长度:** {response_metadata.get('context_length', 0)}")
+                                if response_metadata.get('timestamp'):
+                                    st.caption(f"**生成时间:** {response_metadata['timestamp'][:19]}")
+                                if response_metadata.get('error'):
+                                    st.error(f"**错误:** {response_metadata['error'][:100]}...")
 
                     # 添加到历史
                     st.session_state.conversation_history.append({
                         "role": "assistant",
                         "content": assistant_message,
-                        "sources": sources
+                        "sources": sources,
+                        "response_metadata": response_metadata
                     })
+
+                    # 更新当前会话的消息和时间戳
+                    current_session = get_current_session()
+                    if current_session:
+                        current_session["messages"] = st.session_state.conversation_history.copy()
+                        current_session["updated_at"] = datetime.now()
+
+                        # 如果是第一次对话，根据用户输入自动更新标题
+                        if len(current_session["messages"]) == 2:  # 用户消息 + 助手消息
+                            first_user_msg = current_session["messages"][0]["content"]
+                            if len(first_user_msg) > 20:
+                                current_session["title"] = f"{first_user_msg[:20]}..."
+                            else:
+                                current_session["title"] = first_user_msg
                 else:
                     st.error(f"API请求失败 (状态码: {response.status_code})")
                     st.caption(f"错误详情: {response.text}")
@@ -89,21 +235,14 @@ def process_user_input(user_input: str, selected_model: str = None):
     st.session_state.chat_input_text = ""
 
 
-def main():
-    """主界面"""
-    st.title("🤖 AgentForge")
-    st.caption("基于LangGraph实现的智能对话系统")
+def render_rag_interface():
+    """RAG问答界面"""
+    st.header("📚 基于知识库的RAG问答")
+    st.caption("基于您选择的知识库进行智能问答")
 
-    # 检查API状态
-    api_healthy = check_api_health()
-    if not api_healthy:
-        st.error("⚠️ API服务器未运行，请先启动服务器")
-        st.info("运行 `python scripts/start_server.py --mode api` 启动API服务器")
-        return
-
-    # 侧边栏
+    # RAG专用设置
     with st.sidebar:
-        st.header("设置")
+        st.header("⚙️ RAG设置")
 
         # 模型选择
         available_models = st.session_state.get("available_models", [])
@@ -113,338 +252,541 @@ def main():
         selected_index = st.selectbox(
             "选择模型",
             range(len(model_options)),
-            format_func=lambda x: model_options[x]
+            format_func=lambda x: model_options[x] if model_options else "默认模型",
+            key="rag_model_select"
         )
-        selected_model = model_names[selected_index]
+        selected_model = model_names[selected_index] if model_names else None
 
         # 知识库选择
         kb_names = [kb["name"] for kb in st.session_state.get("knowledge_bases", [])]
         selected_kb = st.selectbox(
             "选择知识库",
             kb_names if kb_names else ["default"],
-            index=0
+            key="rag_kb_select"
         )
         st.session_state.current_kb = selected_kb
 
-        st.session_state.use_kb = st.checkbox("使用知识库", value=False)
+        # RAG状态显示
+        st.subheader("📊 RAG状态")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            kb_count = len(st.session_state.get('knowledge_bases', []))
+            kb_help = f"已加载 {kb_count} 个知识库" if kb_count > 0 else "未加载知识库"
+            st.metric("知识库", kb_count, help=kb_help)
+        with col2:
+            if st.session_state.knowledge_bases:
+                kb_info = next(
+                    (kb for kb in st.session_state.knowledge_bases if kb["name"] == selected_kb),
+                    {}
+                )
+                if kb_info:
+                    st.metric("文档数", f"{kb_info.get('document_count', 0)} 篇")
+                else:
+                    st.metric("知识库状态", "未选择")
+
+        # 设置会话状态
+        st.session_state.selected_model = selected_model
+        st.session_state.use_kb = True
+        st.session_state.selected_tools = []  # RAG模式不使用工具
+
+    # 创建左右布局：左侧聊天界面，右侧会话列表
+    col1, separator, col2 = st.columns([3, 0.1, 1.0])
+
+    with col1:
+        # 左侧：RAG聊天界面
+        render_chat_interface("rag")
+
+    with separator:
+        # 中间分隔区域
+        st.markdown("""
+        <div style="
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(180deg, #e5e7eb 0%, #d1d5db 50%, #e5e7eb 100%);
+            border-radius: 2px;
+            box-shadow: 0 0 8px rgba(0,0,0,0.1);
+            margin: 0 2px;
+        "></div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        # 右侧：会话列表面板
+        render_session_panel("rag")
+
+
+def render_agent_interface():
+    """Agent工具界面"""
+    st.header("🔧 基于工具的Agent助手")
+    st.caption("智能助手可以调用各种工具来帮助您解决问题")
+
+    # Agent专用设置
+    with st.sidebar:
+        st.divider()
+        st.header("⚙️ Agent设置")
+
+        # 模型选择
+        available_models = st.session_state.get("available_models", [])
+        model_options = [model["display_name"] for model in available_models]
+        model_names = [model["name"] for model in available_models]
+
+        selected_index = st.selectbox(
+            "选择模型",
+            range(len(model_options)),
+            format_func=lambda x: model_options[x] if model_options else "默认模型",
+            key="agent_model_select"
+        )
+        selected_model = model_names[selected_index] if model_names else None
 
         # 工具选择
         if st.session_state.available_tools:
             st.subheader("🔧 工具设置")
 
-            # 默认选择全部工具
             tool_names = [tool.get('name', '') for tool in st.session_state.available_tools]
             if not st.session_state.get('selected_tools'):
                 st.session_state.selected_tools = tool_names.copy()
 
-            # 工具选择控制
-            if st.button("🔄 刷新", key="reset_tools"):
-                # 重新加载工具列表
-                import asyncio
-                from src.webui.streamlit_app import APIManager
-                asyncio.run(APIManager.load_tools())
-                st.session_state.selected_tools = tool_names.copy()
-
-            # 多选框选择工具
             selected_tools = st.multiselect(
                 "选择要使用的工具",
                 options=tool_names,
                 default=st.session_state.selected_tools,
-                help="选择助手可以使用的工具，不选择则仅使用对话能力",
-                key="tool_selector"
+                help="选择助手可以使用的工具",
+                key="agent_tools_select"
             )
-
             st.session_state.selected_tools = selected_tools
+        else:
+            st.session_state.selected_tools = []
 
-            # 显示选择统计
-            total_tools = len(tool_names)
-            selected_count = len(selected_tools)
-            st.caption(f"已选择 {selected_count}/{total_tools} 个工具")
+        # Agent状态显示
+        st.subheader("📊 Agent状态")
 
-            # 显示选中的工具详情
-            if selected_tools:
-                with st.expander("📋 选中的工具详情", expanded=False):
-                    for tool in st.session_state.available_tools:
-                        if tool.get('name') in selected_tools:
-                            st.markdown(f"**🔧 {tool.get('name')}**")
-                            st.caption(tool.get('description', '暂无描述'))
-                            if tool.get('inputSchema'):
-                                with st.expander(f"参数模式 - {tool.get('name')}", expanded=False):
-                                    st.json(tool['inputSchema'])
-                            st.divider()
-
-        # 清空对话
-        if st.button("清空对话历史"):
-            st.session_state.conversation_history = []
-            st.rerun()
-
-        # 系统状态
-        st.divider()
-        st.subheader("📊 系统状态")
-
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         with col1:
             st.metric("对话轮数", len([msg for msg in st.session_state.conversation_history if msg["role"] == "user"]))
         with col2:
-            api_status = "🟢 正常" if api_healthy else "🔴 离线"
-            st.metric("API状态", api_status)
-        with col3:
             tool_count = len(st.session_state.get('selected_tools', []))
             st.metric("激活工具", tool_count)
 
-        # 知识库状态
-        if st.session_state.knowledge_bases:
-            kb_info = next(
-                (kb for kb in st.session_state.knowledge_bases if kb["name"] == selected_kb),
-                {}
-            )
-            if kb_info:
-                st.metric("当前知识库", f"{kb_info.get('document_count', 0)} 文档")
-            else:
-                st.metric("当前知识库", "未选择")
-        else:
-            st.metric("知识库状态", "未加载")
+        # 设置会话状态
+        st.session_state.selected_model = selected_model
+        st.session_state.use_kb = False
 
-    # ChatGPT风格的样式定义
+    # 创建左右布局：左侧聊天界面，右侧会话列表
+    col1, separator, col2 = st.columns([3, 0.1, 1.0])
+
+    with col1:
+        # 左侧：Agent聊天界面
+        render_chat_interface("agent")
+
+    with separator:
+        # 中间分隔区域
+        st.markdown("""
+        <div style="
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(180deg, #e5e7eb 0%, #d1d5db 50%, #e5e7eb 100%);
+            border-radius: 2px;
+            box-shadow: 0 0 8px rgba(0,0,0,0.1);
+            margin: 0 2px;
+        "></div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        # 右侧：会话列表面板
+        render_session_panel("agent")
+
+    # 添加左右布局样式
     st.markdown("""
     <style>
-    /* 减少标题间距 */
-    .stTitle {
-        margin-bottom: 10px !important;
-        padding-bottom: 5px !important;
-    }
-
-    .stCaption {
-        margin-bottom: 15px !important;
-        color: #666 !important;
-        font-size: 14px !important;
-    }
-
-    /* 紧凑的页面布局 */
-    .main .block-container {
-        padding-top: 2rem !important;
-        padding-bottom: 1rem !important;
-    }
-
-    /* 优化chat_input发送按钮垂直居中 */
-    .stChatInput {
-        align-items: center !important;
-    }
-
-    .stChatInput > div {
+    /* 强制左右布局 - 确保聊天和会话列表水平排列 */
+    .stColumns {
         display: flex !important;
-        align-items: center !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important; /* 防止换行 */
+        gap: 0 !important; /* 移除gap，使用自定义分隔 */
+        align-items: flex-start !important;
+        width: 100% !important;
     }
 
-    .stChatInput button {
-        align-self: center !important;
-        margin-top: 0 !important;
-        margin-bottom: 0 !important;
+    .stColumns > div {
+        flex-shrink: 0 !important;
+        height: fit-content !important;
     }
 
-    /* 确保输入框和按钮在同一水平线上 */
-    .stChatInput input {
-        line-height: normal !important;
+    /* 左侧聊天区域 */
+    .stColumns > div:first-child {
+        flex: 3 !important;
+        min-width: 60% !important;
     }
 
-    .chat-input-fixed {
-        position: fixed;
-        bottom: 20px;
-        left: 320px; /* 留出侧边栏的空间 */
-        right: 20px;
-        background: white;
-        padding: 20px;
-        border: 1px solid #e0e0e0;
-        border-radius: 8px;
-        box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
-        z-index: 1000;
-        backdrop-filter: blur(10px);
-    }
-
-    /* 响应式设计 */
-    @media (max-width: 1024px) {
-        .chat-input-fixed {
-            left: 280px;
-        }
-    }
-
-    @media (max-width: 768px) {
-        .chat-input-fixed {
-            left: 10px;
-            right: 10px;
-            bottom: 10px;
-            padding: 15px;
-        }
-    }
-
-    /* 聊天消息样式优化 */
-    .stChatMessage {
-        margin-bottom: 16px;
-        padding: 12px;
-        border-radius: 12px;
-    }
-
-    .stChatMessage.user {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        margin-left: auto;
-        margin-right: 0;
-        max-width: 70%;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-
-    .stChatMessage.assistant {
-        background: white;
-        border: 1px solid #e5e7eb;
-        margin-left: 0;
-        margin-right: auto;
-        max-width: 70%;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-    }
-
-    /* 输入框容器样式 */
-    .input-container {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-    }
-
-    /* 改进的按钮样式 */
-    .send-button {
-        min-width: 44px;
-        height: 44px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: #2563eb;
-        color: white;
-        border: none;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-
-    .send-button:hover {
-        background: #1d4ed8;
-        transform: scale(1.05);
-    }
-
-    /* 优化chat_input样式 */
-    .stChatInput {
-        position: fixed !important;
-        bottom: 20px !important;
-        left: 320px !important;
-        right: 20px !important;
-        z-index: 1000 !important;
-        background: white !important;
-        border: 1px solid #e5e7eb !important;
-        border-radius: 24px !important;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.08) !important;
-        padding: 12px 20px !important;
-        max-width: 768px !important;
-        margin: 0 auto !important;
-    }
-
-    .stChatInput input {
-        border: none !important;
-        outline: none !important;
-        background: transparent !important;
-        font-size: 16px !important;
-        line-height: 24px !important;
-        color: #374151 !important;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-    }
-
-    .stChatInput input::placeholder {
-        color: #9ca3af !important;
-    }
-
-    .stChatInput button {
-        background: #2563eb !important;
-        border: none !important;
-        border-radius: 50% !important;
-        width: 32px !important;
-        height: 32px !important;
+    /* 中间分隔区域 */
+    .stColumns > div:nth-child(2) {
+        flex: 0.1 !important;
+        min-width: 8px !important;
+        max-width: 12px !important;
         display: flex !important;
-        align-items: center !important;
+        align-items: stretch !important;
         justify-content: center !important;
-        cursor: pointer !important;
+        padding: 0 !important;
+    }
+
+    /* 右侧会话列表区域 */
+    .stColumns > div:last-child {
+        flex: 1 !important;
+        min-width: 25% !important;
+        max-width: 30% !important;
+    }
+
+    /* 优化左侧聊天区域样式 */
+    .stColumns > div:first-child {
+        background-color: white !important;
+        padding: 20px !important;
+        min-height: 80vh !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important;
+        margin-right: 4px !important;
+    }
+
+    /* 优化右侧面板样式 */
+    .stColumns > div:last-child {
+        background-color: #f8f9fa !important;
+        border-radius: 12px !important;
+        box-shadow: -4px 0 12px rgba(0,0,0,0.08) !important;
+        padding: 20px !important;
+        overflow-y: auto !important;
+        max-height: 80vh !important;
+        position: relative !important;
+    }
+
+    /* 标题样式 */
+    .stColumns > div:last-child .stMarkdown h3 {
+        color: #374151 !important;
+        font-size: 1.3em !important;
+        font-weight: 600 !important;
+        margin: 0 0 16px 0 !important;
+        padding-bottom: 8px !important;
+        border-bottom: 2px solid #10b981 !important;
+    }
+
+    /* 第一个标题（会话列表）使用绿色分割线 */
+    .stColumns > div:last-child .stMarkdown h3:first-of-type {
+        border-bottom-color: #10b981 !important;
+    }
+
+    /* 分割线样式 - 更微妙 */
+    .stColumns > div:last-child .stDivider {
+        margin: 16px 0 !important;
+        border-color: #f3f4f6 !important;
+        border-width: 1px !important;
+    }
+
+    /* 优化按钮样式 */
+    .stColumns > div:last-child .stButton > button {
+        width: 100% !important;
+        margin-bottom: 8px !important;
+        border-radius: 6px !important;
+    }
+
+    /* 优化expander样式 */
+    .stColumns > div:last-child .stExpander {
+        background-color: #f8f9fa !important;
+        border-radius: 8px !important;
+        border: 1px solid #e0e0e0 !important;
+        margin-bottom: 16px !important;
+    }
+
+    .stColumns > div:last-child .stExpander > div:first-child {
+        background-color: #f8f9fa !important;
+        border-radius: 8px 8px 0 0 !important;
+        border-bottom: 1px solid #e0e0e0 !important;
+    }
+
+    .stColumns > div:last-child .stExpander > div:last-child {
+        background-color: white !important;
+        border-radius: 0 0 8px 8px !important;
+    }
+
+    /* 优化会话列表项样式 */
+    .stColumns > div:last-child .stExpander .stContainer {
+        margin-bottom: 8px !important;
+        padding: 8px !important;
+        border-radius: 6px !important;
+        border: 1px solid #e5e7eb !important;
+        background-color: white !important;
         transition: all 0.2s ease !important;
-        opacity: 0.7 !important;
     }
 
-    .stChatInput button:hover {
-        background: #1d4ed8 !important;
-        transform: scale(1.05) !important;
-        opacity: 1 !important;
+    .stColumns > div:last-child .stExpander .stContainer:hover {
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+        transform: translateY(-1px) !important;
     }
 
-    .stChatInput button svg {
-        width: 16px !important;
-        height: 16px !important;
+    /* 当前会话高亮 */
+    .stColumns > div:last-child .stExpander .stContainer:has([data-testid*="session"]:has-text("🔵")) {
+        background-color: #dbeafe !important;
+        border-color: #3b82f6 !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
     }
 
-    /* 响应式设计 */
-    @media (max-width: 1024px) {
-        .stChatInput {
-            left: 280px !important;
-        }
-    }
-
+    /* 响应式调整 */
     @media (max-width: 768px) {
-        .stChatInput {
-            left: 10px !important;
-            right: 10px !important;
-            bottom: 10px !important;
-            padding: 8px 16px !important;
+        .stColumns > div:last-child {
+            padding: 16px !important;
+            margin-left: 0.5rem !important;
+        }
+
+        .stColumns > div:last-child .stMarkdown h3 {
+            font-size: 1.2em !important;
         }
     }
-
-    /* 隐藏不需要的列 */
-    .stColumn > div:empty {
-        display: none !important;
-    }
-
     </style>
     """, unsafe_allow_html=True)
 
-    # 显示对话历史
-    for msg in st.session_state.conversation_history:
-        if msg["role"] == "user":
-            with st.chat_message("user"):
-                st.write(msg["content"])
+
+def render_chat_interface(mode):
+    """渲染聊天界面"""
+    # 为不同模式使用独立的会话历史
+    history_key = f"conversation_history_{mode}"
+    if history_key not in st.session_state:
+        st.session_state[history_key] = []
+
+    # 使用模式特定的历史
+    original_history = st.session_state.get("conversation_history", [])
+    st.session_state.conversation_history = st.session_state[history_key]
+
+    try:
+        # 显示当前会话标题
+        current_session = get_current_session()
+        if current_session:
+            st.subheader(f"💬 {current_session['title']} ({mode.upper()})")
         else:
-            with st.chat_message("assistant"):
-                st.write(msg["content"])
+            st.subheader(f"💬 新对话 ({mode.upper()})")
 
-                # 显示来源（如果有）
-                if msg.get("sources"):
-                    with st.expander("查看来源"):
-                        for source in msg["sources"]:
-                            st.caption(f"来源: {source.get('source', '未知')}")
-                            st.caption(source.get("content", "")[:200])
+        # 显示对话历史
+        for msg in st.session_state.conversation_history:
+            if msg["role"] == "human":
+                with st.chat_message("user"):
+                    st.write(msg["content"])
+            elif msg["role"] == "ai":
+                with st.chat_message("assistant"):
+                    st.write(msg["content"])
 
-    # 极简输入框
-    user_input = st.chat_input(
-        "说点什么...",
-        key="simple_input",
-        max_chars=2000
-    )
+                    # 创建列来并排显示来源和元数据
+                    col1, col2 = st.columns(2)
 
-    # 处理输入
-    if user_input and user_input.strip():
-        # 显示用户消息
-        with st.chat_message("user"):
-            st.write(user_input.strip())
+                    # 显示来源（如果有）
+                    with col1:
+                        if msg.get("sources"):
+                            with st.expander("📚 信息来源"):
+                                for i, source in enumerate(msg["sources"]):
+                                    st.caption(f"**来源 {i + 1}:** {source.get('source', '未知')}")
+                                    content = source.get("content", "")
+                                    if len(content) > 150:
+                                        content = content[:150] + "..."
+                                    st.caption(content)
 
-        # 添加到历史
-        st.session_state.conversation_history.append({
-            "role": "user",
-            "content": user_input.strip()
-        })
+                    # 显示响应元数据（如果有）
+                    with col2:
+                        if msg.get("response_metadata"):
+                            with st.expander("🔍 响应元数据"):
+                                metadata = msg["response_metadata"]
+                                st.caption(f"**查询:** {metadata.get('query', 'N/A')[:50]}...")
+                                st.caption(f"**文档数量:** {len(metadata.get('documents', []))}")
+                                st.caption(f"**来源数量:** {len(metadata.get('sources', []))}")
+                                st.caption(f"**上下文长度:** {metadata.get('context_length', 0)}")
+                                if metadata.get('timestamp'):
+                                    st.caption(f"**生成时间:** {metadata['timestamp'][:19]}")
+                                if metadata.get('error'):
+                                    st.error(f"**错误:** {metadata['error'][:100]}...")
+            elif msg["role"] == "tool":
+                with st.chat_message("tool"):
+                    # 工具消息使用特殊的样式
+                    st.markdown("🔧 **工具调用结果**")
+                    st.code(msg["content"], language="json")
+            else:
+                # 其他类型的消息
+                with st.chat_message("assistant"):
+                    st.markdown(f"**{msg['role'].upper()}**: {msg['content']}")
 
-        # 处理回复
-        process_user_input(user_input.strip(), selected_model)
+        # 极简输入框
+        placeholder = "问我关于知识库的问题..." if mode == "rag" else "让我帮您解决问题..."
+        user_input = st.chat_input(
+            placeholder,
+            key=f"{mode}_input",
+            max_chars=2000
+        )
 
-    # 添加少量底部空间
-    st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
+        # 处理输入
+        if user_input and user_input.strip():
+            # 显示用户消息
+            with st.chat_message("user"):
+                st.write(user_input.strip())
+
+            # 添加到历史
+            st.session_state.conversation_history.append({
+                "role": "human",
+                "content": user_input.strip()
+            })
+
+            # 更新当前会话的消息
+            current_session = get_current_session()
+            if current_session:
+                current_session["messages"] = st.session_state.conversation_history.copy()
+                current_session["updated_at"] = datetime.now()
+
+            # 处理回复
+            process_user_input(user_input.strip(), mode, st.session_state.selected_model)
+
+    finally:
+        # 恢复原始历史
+        st.session_state.conversation_history = original_history
+
+
+def main():
+    """主界面"""
+    st.title("🤖 AgentForge")
+    st.caption("基于LangGraph实现的智能对话系统")
+
+    # 检查用户认证状态
+    if not st.session_state.get("user_authenticated", False):
+        st.warning("⚠️ 请先登录以使用对话功能")
+        st.info("点击左侧边栏的登录按钮进行认证")
+        return
+
+    # 检查API状态
+    api_healthy = check_api_health()
+    if not api_healthy:
+        st.error("⚠️ API服务器未运行，请先启动服务器")
+        st.info("运行 `python scripts/start_server.py --mode api` 启动API服务器")
+        return
+
+    # 初始化会话管理
+    initialize_session_management()
+
+    # 创建选项卡
+    tab_rag, tab_agent = st.tabs(["📚 RAG问答", "🔧 Agent问答"])
+
+    with tab_rag:
+        render_rag_interface()
+
+    with tab_agent:
+        render_agent_interface()
+
+
+def initialize_session_management():
+    """初始化会话管理相关的session state"""
+    if "conversation_history" not in st.session_state:
+        st.session_state.conversation_history = []
+
+    # 初始化输入框状态
+    if "chat_input_text" not in st.session_state:
+        st.session_state.chat_input_text = ""
+
+    # 初始化右侧面板折叠状态
+    if "session_panel_expanded" not in st.session_state:
+        st.session_state.session_panel_expanded = True
+
+
+def get_current_session():
+    """获取当前会话信息（简化版）"""
+    session_id = st.session_state.get("current_session_id")
+    if session_id:
+        # 这里可以从API获取会话详情，但为了性能暂时返回基本信息
+        return {
+            "session_id": session_id,
+            "title": f"对话 {session_id[:8]}..."  # 临时标题
+        }
+    return None
+
+
+def render_session_panel(mode="default"):
+    """渲染右侧会话记录面板"""
+    # 获取当前用户信息
+    user_authenticated = st.session_state.get("user_authenticated", False)
+    current_user = st.session_state.get("current_user") if user_authenticated else None
+
+    if not user_authenticated or not current_user:
+        st.caption("请先登录以查看会话记录")
+        return
+
+    user_id = current_user.get("user_id")
+    current_session_id = st.session_state.get("current_session_id")
+
+    # New Chat按钮 - 始终可见
+    if st.button("➕ 新建对话", use_container_width=True, type="primary", key=f"new_chat_{mode}"):
+        # 通过API创建新会话
+        new_session = create_session_via_api(user_id, mode, model_name=st.session_state.get("selected_model"))
+        if new_session:
+            session_id = new_session.get("session_id")
+            st.session_state.current_session_id = session_id
+            # 清空当前模式的对话历史
+            history_key = f"conversation_history_{mode}"
+            st.session_state[history_key] = []
+            st.success(f"已创建新对话: {new_session.get('title', '新对话')}")
+            st.rerun()
+        else:
+            st.error("创建新对话失败")
+
+    # 可折叠的会话列表
+    with st.expander(f"📋 {mode.title()} 会话列表", expanded=st.session_state.session_panel_expanded):
+        # 从API获取会话列表
+        sessions = fetch_user_sessions(user_id, mode, limit=50)
+
+        if not sessions:
+            st.caption("暂无会话记录")
+            return
+
+        # 按更新时间倒序排列
+        sorted_sessions = sorted(
+            sessions,
+            key=lambda x: x.get("updated_at", ""),
+            reverse=True
+        )
+
+        for session in sorted_sessions:
+            session_id = session["session_id"]
+            title = session["title"]
+            is_current = session_id == current_session_id
+
+            # 会话项容器
+            with st.container():
+                col1, col2 = st.columns([4, 1])
+
+                with col1:
+                    # 会话标题
+                    button_label = f"{'🔵' if is_current else ''} {title}"
+                    if st.button(button_label, key=f"session_{session_id}_{mode}", use_container_width=True):
+                        # 切换到选中会话
+                        st.session_state.current_session_id = session_id
+                        # 从API加载会话消息
+                        messages = get_session_messages_via_api(session_id)
+                        # 转换为前端格式
+                        conversation_history = []
+                        for msg in messages:
+                            conversation_history.append({
+                                "role": msg["role"],
+                                "content": msg["content"],
+                                "sources": msg["sources"]
+                            })
+                        # 设置模式特定的会话历史
+                        history_key = f"conversation_history_{mode}"
+                        st.session_state[history_key] = conversation_history
+                        st.rerun()
+
+                with col2:
+                    # 删除按钮
+                    if st.button("🗑️", key=f"delete_{session_id}_{mode}", help="删除会话"):
+                        if delete_session_via_api(session_id):
+                            st.success("会话已删除")
+                            # 如果删除的是当前会话，清空状态
+                            if session_id == current_session_id:
+                                st.session_state.current_session_id = None
+                                # 清空当前模式的对话历史
+                                history_key = f"conversation_history_{mode}"
+                                st.session_state[history_key] = []
+                            st.rerun()
+                        else:
+                            st.error("删除会话失败")
+
+            # 分隔线
+            st.divider()

@@ -10,14 +10,14 @@ import asyncio
 from langchain_core.messages import ToolMessage, AIMessage
 from langchain_core.tools import BaseTool
 
-from ..state.base_state import AgentState
+from ..state.base_state import GraphState
 
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-def create_tool_executor_node(tools: List[BaseTool], name: str = "tool_executor"):
+def create_tool_executor_node(tools: List[BaseTool]):
     """
     创建工具执行节点（LangGraph标准）
     
@@ -31,7 +31,7 @@ def create_tool_executor_node(tools: List[BaseTool], name: str = "tool_executor"
     # 创建工具字典
     tool_map = {tool.name: tool for tool in tools}
     
-    async def tool_executor_node(state: AgentState) -> Dict[str, Any]:
+    async def tool_executor_node(state: GraphState) -> Dict[str, Any]:
         """
         工具执行节点
         

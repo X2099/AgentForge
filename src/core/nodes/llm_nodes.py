@@ -4,36 +4,46 @@
 @Time    : 2025/12/9 10:17
 @Desc    : 
 """
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 import json
 from datetime import datetime
+import logging
+
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import (
+    BaseMessage,
+    HumanMessage,
+    AIMessage,
+    SystemMessage,
+    ToolMessage,
+)
 
 from .base_node import Node, AsyncNode
 from ..state.base_state import AgentState
-from src.llm.llm_client import LLMClient
 from src.config.system_config import SystemConfig
+
+logger = logging.getLogger(__name__)
 
 
 class LLMNode(Node):
     """LLM节点（完整版）"""
 
-    def __init__(self,
-                 name: str,
-                 llm_config: Optional[Dict[str, Any]] = None,
-                 system_prompt: str = "",
-                 temperature: float = 0.7,
-                 max_tokens: Optional[int] = None):
+    def __init__(
+        self,
+        name: str,
+        llm_config: Optional[Dict[str, Any]] = None,
+        system_prompt: str = "",
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+    ):
         super().__init__(name, "llm", "调用大型语言模型")
 
         # 创建LLM客户端
+        config_manager = SystemConfig()
         if llm_config:
-            # 从配置创建
-            config_manager = SystemConfig()
-            self.llm_client = config_manager.create_client(**llm_config)
+            self.llm_model: BaseChatModel = config_manager.create_client(**llm_config)
         else:
-            # 默认配置
-            config_manager = SystemConfig()
-            self.llm_client = config_manager.create_client()
+            self.llm_model = config_manager.create_client()
 
         self.system_prompt = system_prompt
         self.temperature = temperature
@@ -53,13 +63,21 @@ class LLMNode(Node):
 
             # 调用LLM
             start_time = datetime.now()
-            response = self.llm_client.chat(
-                messages=messages,
-                temperature=state.get("temperature", self.temperature),
-                max_tokens=state.get("max_tokens", self.max_tokens),
-                tools=tools,
-                tool_choice=state.get("tool_choice", "auto")
-            )
+            langchain_messages = self._convert_messages(messages)
+
+            invoke_kwargs: Dict[str, Any] = {
+                "temperature": state.get("temperature", self.temperature),
+                "max_tokens": state.get("max_tokens", self.max_tokens),
+            }
+            if tools:
+                invoke_kwargs["tools"] = tools
+            if state.get("tool_choice"):
+                invoke_kwargs["tool_choice"] = state["tool_choice"]
+
+            if tools:
+                response = self.llm_model.invoke(langchain_messages, **invoke_kwargs)
+            else:
+                response = self.llm_model.invoke(langchain_messages, **invoke_kwargs)
 
             # 解析响应
             result = self._parse_response(response)
@@ -72,7 +90,9 @@ class LLMNode(Node):
                 "content": result.get("content", ""),
                 "tool_calls": result.get("tool_calls", []),
                 "execution_time": execution_time,
-                "tokens_used": response.usage.get("total_tokens", 0) if response.usage else 0,
+                "tokens_used": response.response_metadata.get("token_usage", {}).get("total_tokens", 0)
+                if hasattr(response, "response_metadata") and response.response_metadata
+                else 0,
                 "next_node": "tool_executor" if result.get("tool_calls") else "response_formatter"
             }
 
@@ -83,6 +103,35 @@ class LLMNode(Node):
                 "content": f"抱歉，我遇到了一个错误：{str(e)}",
                 "next_node": "error_handler"
             }
+
+    def _convert_messages(self, messages: List[Union[Dict[str, Any], BaseMessage]]) -> List[BaseMessage]:
+        """将通用消息转换为LangChain消息"""
+        langchain_messages: List[BaseMessage] = []
+
+        for msg in messages:
+            if isinstance(msg, BaseMessage):
+                langchain_messages.append(msg)
+                continue
+
+            if isinstance(msg, dict):
+                role = msg.get("role", msg.get("type", "user"))
+                content = msg.get("content", "")
+                if role == "system":
+                    langchain_messages.append(SystemMessage(content=content))
+                elif role in {"user", "human"}:
+                    langchain_messages.append(HumanMessage(content=content))
+                elif role in {"assistant", "ai"}:
+                    langchain_messages.append(AIMessage(content=content))
+                elif role == "tool":
+                    tool_call_id = msg.get("tool_call_id", "")
+                    langchain_messages.append(ToolMessage(content=content, tool_call_id=tool_call_id))
+                else:
+                    langchain_messages.append(HumanMessage(content=content))
+                continue
+
+            langchain_messages.append(HumanMessage(content=str(msg)))
+
+        return langchain_messages
 
     def _prepare_messages(self, state: AgentState) -> List[Dict[str, Any]]:
         """准备消息列表"""
@@ -148,17 +197,36 @@ class LLMNode(Node):
         }
 
         # 获取内容
-        result["content"] = response.get_content() or ""
+        result["content"] = getattr(response, "content", "") or ""
 
         # 解析工具调用
-        tool_calls = response.get_tool_calls()
+        tool_calls = getattr(response, "tool_calls", []) or []
         for tool_call in tool_calls:
+            tool_name = ""
+            arguments: Any = {}
+            tool_id = ""
+
+            if isinstance(tool_call, dict):
+                tool_id = tool_call.get("id", "")
+                tool_name = tool_call.get("name", "")
+                arguments = tool_call.get("args") or tool_call.get("arguments", {})
+            else:
+                tool_id = getattr(tool_call, "id", "")
+                tool_name = getattr(tool_call, "name", "")
+                arguments = getattr(tool_call, "args", {})
+                if not arguments and hasattr(tool_call, "function"):
+                    fn = getattr(tool_call, "function", {})
+                    arguments = json.loads(fn.get("arguments", "{}")) if isinstance(fn, dict) else {}
+
+            try:
+                parsed_args = json.loads(arguments) if isinstance(arguments, str) else arguments
+            except Exception:
+                parsed_args = arguments
+
             result["tool_calls"].append({
-                "id": tool_call.id,
-                "name": tool_call.function.get("name", ""),
-                "arguments": json.loads(
-                    tool_call.function.get("arguments", "{}")
-                )
+                "id": tool_id,
+                "name": tool_name,
+                "arguments": parsed_args,
             })
 
         return result
@@ -167,9 +235,9 @@ class LLMNode(Node):
 class AsyncLLMNode(AsyncNode):
     """异步LLM节点"""
 
-    def __init__(self, name: str, llm_client: LLMClient, **kwargs):
+    def __init__(self, name: str, llm_client: BaseChatModel, **kwargs):
         super().__init__(name, "async_llm", "异步调用大型语言模型")
-        self.llm_client = llm_client
+        self.llm_model = llm_client
         self.kwargs = kwargs
 
     async def execute_async(self, state: AgentState) -> Dict[str, Any]:
@@ -190,11 +258,11 @@ class AsyncLLMNode(AsyncNode):
 
             # 异步调用LLM
             start_time = datetime.now()
-            response = await self.llm_client.achat(messages, **self.kwargs)
+            response = await self.llm_model.ainvoke(messages, **self.kwargs)
 
             # 解析响应
-            content = response.get_content() or ""
-            tool_calls = response.get_tool_calls()
+            content = getattr(response, "content", "") or ""
+            tool_calls = getattr(response, "tool_calls", []) or []
 
             execution_time = (datetime.now() - start_time).total_seconds()
 
@@ -207,7 +275,9 @@ class AsyncLLMNode(AsyncNode):
                     "arguments": json.loads(tc.function.get("arguments", "{}"))
                 } for tc in tool_calls],
                 "execution_time": execution_time,
-                "tokens_used": response.usage.get("total_tokens", 0) if response.usage else 0,
+                "tokens_used": response.response_metadata.get("token_usage", {}).get("total_tokens", 0)
+                if hasattr(response, "response_metadata") and response.response_metadata
+                else 0,
                 "next_node": "tool_executor" if tool_calls else "response_formatter"
             }
 

@@ -11,7 +11,10 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 from dotenv import load_dotenv
 import logging
-from src.llm.llm_client import LLMClient
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_openai import ChatOpenAI
+from langchain_deepseek import ChatDeepSeek
+from langchain_anthropic import ChatAnthropic
 
 logger = logging.getLogger(__name__)
 
@@ -89,19 +92,19 @@ class SystemConfig:
                 "deepseek": {
                     "api_key": "${DEEPSEEK_API_KEY}",
                     "base_url": None,
-                    "default_model": "deepseek-chat",
+                    "model": "deepseek-chat",
                     "timeout": 30,
                     "max_retries": 3
                 },
                 "openai": {
                     "api_key": "${OPENAI_API_KEY}",
                     "base_url": None,
-                    "default_model": "gpt-5",
+                    "model": "gpt-5",
                     "timeout": 30,
                     "max_retries": 3
                 },
                 "local": {
-                    "default_model": "Qwen/Qwen2.5-7B-Instruct",
+                    "model": "Qwen/Qwen2.5-7B-Instruct",
                     "device": "auto",
                     "load_in_8bit": False,
                     "load_in_4bit": False
@@ -161,12 +164,51 @@ class SystemConfig:
                 return provider_name
         return None
 
+    def _create_chat_model(
+            self,
+            provider_type: str,
+            model_name: str,
+            api_key: Optional[str],
+            base_url: Optional[str],
+            temperature: float,
+            max_tokens: Optional[int],
+            timeout: int,
+            max_retries: int,
+            **kwargs,
+    ) -> BaseChatModel:
+        """直接创建LangChain ChatModel实例"""
+        common_params = {
+            "model": model_name,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "timeout": timeout,
+            "max_retries": max_retries,
+            **kwargs,
+        }
+
+        if provider_type.lower() == "openai":
+            if api_key:
+                common_params["api_key"] = api_key
+            if base_url:
+                common_params["base_url"] = base_url
+            return ChatOpenAI(**common_params)
+        if provider_type.lower() == "deepseek":
+            if api_key:
+                common_params["api_key"] = api_key
+            return ChatDeepSeek(**common_params)
+        if provider_type.lower() == "anthropic":
+            if api_key:
+                common_params["api_key"] = api_key
+            return ChatAnthropic(**common_params)
+
+        raise ValueError(f"不支持的提供商类型: {provider_type}")
+
     def create_client(self,
                       provider: Optional[str] = None,
                       model: Optional[str] = None,
-                      **kwargs) -> LLMClient:
+                      **kwargs) -> BaseChatModel:
         """
-        创建LLM客户端（基于LangChain）
+        创建LLM模型实例（直接使用LangChain ChatModel）
 
         Args:
             provider: 提供商类型 (openai, anthropic)
@@ -174,7 +216,7 @@ class SystemConfig:
             **kwargs: 其他参数
 
         Returns:
-            LLMClient实例
+            BaseChatModel实例
         """
 
         # 如果提供了model但没有provider，尝试根据model找到对应的provider
@@ -203,8 +245,7 @@ class SystemConfig:
                 env_var = client_config["api_key"][2:-1]
                 client_config["api_key"] = os.getenv(env_var, client_config["api_key"])
 
-        # 创建客户端
-        return LLMClient(**client_config)
+        return self._create_chat_model(**client_config)
 
     def save_config(self, config: Optional[Dict[str, Any]] = None):
         """保存配置"""
