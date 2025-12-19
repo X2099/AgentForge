@@ -116,7 +116,7 @@ for doc in results["results"]:
 ## 在 RAG Agent 中使用
 
 ```python
-from src.agents.rag_agent import create_rag_agent
+from src.graphs.rag import create_rag_agent
 from src.config import SystemConfig
 from src.knowledge.kb_manager import KnowledgeBaseManager
 

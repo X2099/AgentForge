@@ -9,6 +9,7 @@ import requests
 import streamlit as st
 
 from . import API_BASE_URL
+from .styles.custom_styles import apply_custom_styles
 
 
 def check_api_health():
@@ -128,7 +129,7 @@ def process_user_input(user_input: str, mode: str, selected_model: str = None):
     # 获取当前设置
     selected_tools = st.session_state.get('selected_tools', [])
     use_kb = st.session_state.get('use_kb', True)
-    current_session_id = st.session_state.get('current_session_id')
+    current_session_id = st.session_state.get(f'current_session_id_{mode}')
 
     # 生成助手回复
     with st.chat_message("assistant"):
@@ -158,12 +159,11 @@ def process_user_input(user_input: str, mode: str, selected_model: str = None):
                     response_data = response.json()
                     assistant_message = response_data.get("response", "")
                     sources = response_data.get("sources", [])
-                    response_metadata = response_data.get("response_metadata")
                     conversation_id = response_data.get("conversation_id")
 
                     # 更新当前会话ID（如果API返回了新的会话ID）
                     if conversation_id and conversation_id != current_session_id:
-                        st.session_state.current_session_id = conversation_id
+                        st.session_state[f'current_session_id_{mode}'] = conversation_id
 
                     # 显示回复
                     if assistant_message:
@@ -185,29 +185,15 @@ def process_user_input(user_input: str, mode: str, selected_model: str = None):
                                         content = content[:200] + "..."
                                     st.caption(content)
 
-                    # 显示响应元数据
-                    with col2:
-                        if response_metadata:
-                            with st.expander("🔍 响应元数据"):
-                                st.caption(f"**查询:** {response_metadata.get('query', 'N/A')[:50]}...")
-                                st.caption(f"**文档数量:** {len(response_metadata.get('documents', []))}")
-                                st.caption(f"**来源数量:** {len(response_metadata.get('sources', []))}")
-                                st.caption(f"**上下文长度:** {response_metadata.get('context_length', 0)}")
-                                if response_metadata.get('timestamp'):
-                                    st.caption(f"**生成时间:** {response_metadata['timestamp'][:19]}")
-                                if response_metadata.get('error'):
-                                    st.error(f"**错误:** {response_metadata['error'][:100]}...")
-
                     # 添加到历史
                     st.session_state.conversation_history.append({
-                        "role": "assistant",
+                        "role": "ai",
                         "content": assistant_message,
-                        "sources": sources,
-                        "response_metadata": response_metadata
+                        "sources": sources
                     })
 
                     # 更新当前会话的消息和时间戳
-                    current_session = get_current_session()
+                    current_session = get_current_session(mode)
                     if current_session:
                         current_session["messages"] = st.session_state.conversation_history.copy()
                         current_session["updated_at"] = datetime.now()
@@ -322,7 +308,6 @@ def render_agent_interface():
 
     # Agent专用设置
     with st.sidebar:
-        st.divider()
         st.header("⚙️ Agent设置")
 
         # 模型选择
@@ -395,154 +380,6 @@ def render_agent_interface():
         # 右侧：会话列表面板
         render_session_panel("agent")
 
-    # 添加左右布局样式
-    st.markdown("""
-    <style>
-    /* 强制左右布局 - 确保聊天和会话列表水平排列 */
-    .stColumns {
-        display: flex !important;
-        flex-direction: row !important;
-        flex-wrap: nowrap !important; /* 防止换行 */
-        gap: 0 !important; /* 移除gap，使用自定义分隔 */
-        align-items: flex-start !important;
-        width: 100% !important;
-    }
-
-    .stColumns > div {
-        flex-shrink: 0 !important;
-        height: fit-content !important;
-    }
-
-    /* 左侧聊天区域 */
-    .stColumns > div:first-child {
-        flex: 3 !important;
-        min-width: 60% !important;
-    }
-
-    /* 中间分隔区域 */
-    .stColumns > div:nth-child(2) {
-        flex: 0.1 !important;
-        min-width: 8px !important;
-        max-width: 12px !important;
-        display: flex !important;
-        align-items: stretch !important;
-        justify-content: center !important;
-        padding: 0 !important;
-    }
-
-    /* 右侧会话列表区域 */
-    .stColumns > div:last-child {
-        flex: 1 !important;
-        min-width: 25% !important;
-        max-width: 30% !important;
-    }
-
-    /* 优化左侧聊天区域样式 */
-    .stColumns > div:first-child {
-        background-color: white !important;
-        padding: 20px !important;
-        min-height: 80vh !important;
-        border-radius: 12px !important;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important;
-        margin-right: 4px !important;
-    }
-
-    /* 优化右侧面板样式 */
-    .stColumns > div:last-child {
-        background-color: #f8f9fa !important;
-        border-radius: 12px !important;
-        box-shadow: -4px 0 12px rgba(0,0,0,0.08) !important;
-        padding: 20px !important;
-        overflow-y: auto !important;
-        max-height: 80vh !important;
-        position: relative !important;
-    }
-
-    /* 标题样式 */
-    .stColumns > div:last-child .stMarkdown h3 {
-        color: #374151 !important;
-        font-size: 1.3em !important;
-        font-weight: 600 !important;
-        margin: 0 0 16px 0 !important;
-        padding-bottom: 8px !important;
-        border-bottom: 2px solid #10b981 !important;
-    }
-
-    /* 第一个标题（会话列表）使用绿色分割线 */
-    .stColumns > div:last-child .stMarkdown h3:first-of-type {
-        border-bottom-color: #10b981 !important;
-    }
-
-    /* 分割线样式 - 更微妙 */
-    .stColumns > div:last-child .stDivider {
-        margin: 16px 0 !important;
-        border-color: #f3f4f6 !important;
-        border-width: 1px !important;
-    }
-
-    /* 优化按钮样式 */
-    .stColumns > div:last-child .stButton > button {
-        width: 100% !important;
-        margin-bottom: 8px !important;
-        border-radius: 6px !important;
-    }
-
-    /* 优化expander样式 */
-    .stColumns > div:last-child .stExpander {
-        background-color: #f8f9fa !important;
-        border-radius: 8px !important;
-        border: 1px solid #e0e0e0 !important;
-        margin-bottom: 16px !important;
-    }
-
-    .stColumns > div:last-child .stExpander > div:first-child {
-        background-color: #f8f9fa !important;
-        border-radius: 8px 8px 0 0 !important;
-        border-bottom: 1px solid #e0e0e0 !important;
-    }
-
-    .stColumns > div:last-child .stExpander > div:last-child {
-        background-color: white !important;
-        border-radius: 0 0 8px 8px !important;
-    }
-
-    /* 优化会话列表项样式 */
-    .stColumns > div:last-child .stExpander .stContainer {
-        margin-bottom: 8px !important;
-        padding: 8px !important;
-        border-radius: 6px !important;
-        border: 1px solid #e5e7eb !important;
-        background-color: white !important;
-        transition: all 0.2s ease !important;
-    }
-
-    .stColumns > div:last-child .stExpander .stContainer:hover {
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
-        transform: translateY(-1px) !important;
-    }
-
-    /* 当前会话高亮 */
-    .stColumns > div:last-child .stExpander .stContainer:has([data-testid*="session"]:has-text("🔵")) {
-        background-color: #dbeafe !important;
-        border-color: #3b82f6 !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
-    }
-
-    /* 响应式调整 */
-    @media (max-width: 768px) {
-        .stColumns > div:last-child {
-            padding: 16px !important;
-            margin-left: 0.5rem !important;
-        }
-
-        .stColumns > div:last-child .stMarkdown h3 {
-            font-size: 1.2em !important;
-        }
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-
 def render_chat_interface(mode):
     """渲染聊天界面"""
     # 为不同模式使用独立的会话历史
@@ -556,7 +393,7 @@ def render_chat_interface(mode):
 
     try:
         # 显示当前会话标题
-        current_session = get_current_session()
+        current_session = get_current_session(mode)
         if current_session:
             st.subheader(f"💬 {current_session['title']} ({mode.upper()})")
         else:
@@ -629,7 +466,7 @@ def render_chat_interface(mode):
             })
 
             # 更新当前会话的消息
-            current_session = get_current_session()
+            current_session = get_current_session(mode)
             if current_session:
                 current_session["messages"] = st.session_state.conversation_history.copy()
                 current_session["updated_at"] = datetime.now()
@@ -662,15 +499,20 @@ def main():
 
     # 初始化会话管理
     initialize_session_management()
+    # 应用集中样式
+    apply_custom_styles()
 
-    # 创建选项卡
-    tab_rag, tab_agent = st.tabs(["📚 RAG问答", "🔧 Agent问答"])
+    tab = st.radio(
+        "选择模式",
+        ["🔧 Agent问答", "📚 RAG问答"],
+        horizontal=True,
+        label_visibility="collapsed"
+    )
 
-    with tab_rag:
-        render_rag_interface()
-
-    with tab_agent:
+    if tab == "🔧 Agent问答":
         render_agent_interface()
+    elif tab == "📚 RAG问答":
+        render_rag_interface()
 
 
 def initialize_session_management():
@@ -687,9 +529,9 @@ def initialize_session_management():
         st.session_state.session_panel_expanded = True
 
 
-def get_current_session():
+def get_current_session(mode):
     """获取当前会话信息（简化版）"""
-    session_id = st.session_state.get("current_session_id")
+    session_id = st.session_state.get(f"current_session_id_{mode}")
     if session_id:
         # 这里可以从API获取会话详情，但为了性能暂时返回基本信息
         return {
@@ -710,7 +552,7 @@ def render_session_panel(mode="default"):
         return
 
     user_id = current_user.get("user_id")
-    current_session_id = st.session_state.get("current_session_id")
+    current_session_id = st.session_state.get(f"current_session_id_{mode}")
 
     # New Chat按钮 - 始终可见
     if st.button("➕ 新建对话", use_container_width=True, type="primary", key=f"new_chat_{mode}"):
@@ -718,7 +560,7 @@ def render_session_panel(mode="default"):
         new_session = create_session_via_api(user_id, mode, model_name=st.session_state.get("selected_model"))
         if new_session:
             session_id = new_session.get("session_id")
-            st.session_state.current_session_id = session_id
+            st.session_state.rrent_session_id =id
             # 清空当前模式的对话历史
             history_key = f"conversation_history_{mode}"
             st.session_state[history_key] = []
@@ -757,7 +599,7 @@ def render_session_panel(mode="default"):
                     button_label = f"{'🔵' if is_current else ''} {title}"
                     if st.button(button_label, key=f"session_{session_id}_{mode}", use_container_width=True):
                         # 切换到选中会话
-                        st.session_state.current_session_id = session_id
+                        st.session_state[f"current_session_id_{mode}"] = session_id
                         # 从API加载会话消息
                         messages = get_session_messages_via_api(session_id)
                         # 转换为前端格式
@@ -780,7 +622,7 @@ def render_session_panel(mode="default"):
                             st.success("会话已删除")
                             # 如果删除的是当前会话，清空状态
                             if session_id == current_session_id:
-                                st.session_state.current_session_id = None
+                                st.session_state[f"current_session_id_{mode}"] = None
                                 # 清空当前模式的对话历史
                                 history_key = f"conversation_history_{mode}"
                                 st.session_state[history_key] = []

@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-@File    : react_agent.py
+@File    : react.py
 @Time    : 2025/12/9 14:39
-@Desc    : 基于LangGraph标准的对话Agent
+@Desc    : 基于LangGraph标准的ReactAgent
 """
-import operator
 from typing import Dict, Any, List, Optional, Annotated
 from langgraph.graph import START, END
 from langchain_core.messages import SystemMessage, AIMessage
@@ -15,7 +14,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 
 from ..core.graphs.base_graph import BaseGraph
-from ..core.state.base_state import GraphState, DisplayMessage
+from ..core.state.base_state import GraphState
 from ..core.nodes.tool_nodes import create_tool_executor_node
 from ..memory.checkpoint_memory_manager import CheckpointMemoryManager, CheckpointMemoryConfig
 from ..memory.checkpoint_memory_nodes import (
@@ -25,13 +24,13 @@ from ..memory.checkpoint_memory_nodes import (
 )
 
 
-class ConversationState(GraphState):
+class ReactGraphState(GraphState):
     """对话状态"""
     query: Optional[str]
     context: Optional[str]
 
 
-class ConversationGraph(BaseGraph):
+class ReactGraph(BaseGraph):
     """
     对话工作流
     
@@ -42,7 +41,6 @@ class ConversationGraph(BaseGraph):
             self,
             llm: BaseChatModel,
             tools: Optional[List[BaseTool]] = None,
-            knowledge_base: Optional[Any] = None,
             system_prompt: Optional[str] = None,
             checkpointer: Optional[BaseCheckpointSaver] = None
     ):
@@ -52,19 +50,17 @@ class ConversationGraph(BaseGraph):
         Args:
             llm: LLM客户端
             tools: 工具列表
-            knowledge_base: 知识库（可选）
             system_prompt: 系统提示词
             checkpointer: LangGraph检查点保存器
         """
         super().__init__(
             name="conversation_workflow",
             description="标准对话工作流",
-            state_type=ConversationState
+            state_type=ReactGraphState
         )
 
         self.llm = llm
         self.tools = tools or []
-        self.knowledge_base = knowledge_base
         self.system_prompt = system_prompt or self._build_default_system_prompt()
 
         # 记忆相关 - 基于checkpointer
@@ -105,20 +101,11 @@ class ConversationGraph(BaseGraph):
             self.add_node("memory_retrieval", memory_retrieval)
             self.add_node("memory_summarization", memory_summarization)
 
-        # 如果启用知识库，添加检索节点
-        if self.knowledge_base:
-            self.add_node("retrieve", self._retrieve_node)
-
         # 如果启用记忆，先加载历史记忆
         if self.enable_memory:
             self.add_edge(START, "memory_loader")
             self.add_edge("memory_loader", "memory_retrieval")
             current_start = "memory_retrieval"
-
-        # 然后进行知识库检索（如果启用）
-        if self.knowledge_base:
-            self.add_edge(START, "retrieve")
-            current_start = "retrieve"
 
         # 从最后一个准备节点连接到生成节点
         self.add_edge(START, "generate")
@@ -139,7 +126,7 @@ class ConversationGraph(BaseGraph):
         else:
             self.add_edge("generate", END)
 
-    def _truncate_messages_node(self, state: ConversationState) -> Dict[str, Any]:
+    def _truncate_messages_node(self, state: ReactGraphState) -> Dict[str, Any]:
         """
         消息截断节点
 
@@ -175,29 +162,7 @@ class ConversationGraph(BaseGraph):
 
         return {"messages": new_messages}
 
-    def _retrieve_node(self, state: ConversationState) -> Dict[str, Any]:
-        """知识库检索节点"""
-        if not self.knowledge_base or not state.get("query"):
-            return {"retrieved_context": ""}
-
-        try:
-            # 从知识库检索
-            query = state["query"]
-            documents = self.knowledge_base.search(query, k=3)
-
-            # 构建上下文
-            context_parts = []
-            for i, doc in enumerate(documents, 1):
-                content = doc.content[:200] if hasattr(doc, "content") else str(doc)[:200]
-                context_parts.append(f"[文档{i}] {content}")
-
-            context = "\n\n".join(context_parts)
-            return {"retrieved_context": context}
-
-        except Exception as e:
-            return {"retrieved_context": f"检索错误: {str(e)}"}
-
-    async def _generate_node(self, state: ConversationState) -> Dict[str, Any]:
+    async def _generate_node(self, state: ReactGraphState) -> Dict[str, Any]:
         """LLM生成节点"""
         # 准备消息
         system_prompt = self.system_prompt
@@ -229,7 +194,7 @@ class ConversationGraph(BaseGraph):
                 "error": str(e)
             }
 
-    def _should_use_tools(self, state: ConversationState) -> str:
+    def _should_use_tools(self, state: ReactGraphState) -> str:
         """
         判断当前回复是否包含工具调用
         """
@@ -245,10 +210,9 @@ class ConversationGraph(BaseGraph):
         return "end"
 
 
-def create_react_agent(
+def create_react_graph(
         llm: BaseChatModel,
         tools: Optional[List[BaseTool]] = None,
-        knowledge_base: Optional[Any] = None,
         system_prompt: Optional[str] = None,
         checkpointer: Optional[BaseCheckpointSaver] = None
 ) -> CompiledStateGraph:
@@ -258,17 +222,15 @@ def create_react_agent(
     Args:
         llm: LLM客户端
         tools: 工具列表
-        knowledge_base: 知识库
         system_prompt: 系统提示词
         checkpointer: LangGraph检查点保存器，用于实现记忆功能
 
     Returns:
         编译后的工作流图
     """
-    graph = ConversationGraph(
+    graph = ReactGraph(
         llm=llm,
         tools=tools,
-        knowledge_base=knowledge_base,
         system_prompt=system_prompt,
         checkpointer=checkpointer
     )

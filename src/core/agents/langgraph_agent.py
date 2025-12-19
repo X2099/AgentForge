@@ -5,7 +5,7 @@
 @Desc    : 基于LangGraph标准的Agent构建器
 
 注意：此文件使用旧的memory实现，已被基于checkpointer的实现替代。
-建议使用 src/agents/react_agent.py 中的新实现。
+建议使用 src/graphs/react.py 中的新实现。
 """
 from typing import Dict, Any, List, Optional
 

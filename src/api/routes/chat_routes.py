@@ -16,7 +16,7 @@ from src.config import SystemConfig
 from src.core.agents.agent_manager import AgentManager
 from src.knowledge.kb_manager import KnowledgeBaseManager
 from src.tools.tool_manager import get_tool_manager
-from src.agents import create_react_agent, create_rag_agent
+from src.graphs import create_react_graph, create_rag_graph
 from ..models import ChatRequest, ChatResponse
 
 logger = logging.getLogger(__name__)
@@ -75,13 +75,7 @@ async def chat(request: ChatRequest):
                         )
                 except Exception as e:
                     logger.error(f"创建会话失败：{e}")
-                    # 会话不存在，创建一个新的
-                    session_id = agent_manager.create_user_session(
-                        user_id=user_id,
-                        title=f"对话 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                        graph_type=graph_type,
-                        model_name=request.model
-                    )
+                    raise HTTPException(status_code=500, detail=f"聊天服务暂时不可用: {str(e)}")
         # 获取LLM模型
         llm = system_config.create_client(model=request.model)
         # 创建工作流
@@ -90,7 +84,7 @@ async def chat(request: ChatRequest):
             if request.mode == "rag":
                 # 获取知识库
                 kb = knowledge_base_manager.get_knowledge_base(request.knowledge_base_name)
-                graph = create_rag_agent(llm, knowledge_base=kb, checkpointer=checkpointer)
+                graph = create_rag_graph(llm, knowledge_base=kb, checkpointer=checkpointer)
             else:
                 # 获取选中的工具
                 tool_manager = get_tool_manager()
@@ -99,7 +93,7 @@ async def chat(request: ChatRequest):
                     tool = tool_manager.get_tool(tool_name)
                     if tool:
                         selected_tools.append(tool)
-                graph = create_react_agent(llm, tools=selected_tools, checkpointer=checkpointer)
+                graph = create_react_graph(llm, tools=selected_tools, checkpointer=checkpointer)
             # 准备初始状态
             initial_state = {
                 "messages": [HumanMessage(content=request.query)],
@@ -123,6 +117,7 @@ async def chat(request: ChatRequest):
                 )
 
             except Exception as e:
+                raise e
                 error_msg = f"工作流执行失败: {str(e)}"
                 raise HTTPException(status_code=500, detail=error_msg)
 

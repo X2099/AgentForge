@@ -15,7 +15,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from src.config.system_config import SystemConfig
 from src.tools.builtin_tools.calculator import calculator_tool
-from src.agents.react_agent import create_react_agent
+from src.graphs.react import create_react_agent
 
 
 async def main():

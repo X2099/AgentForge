@@ -7,156 +7,349 @@ import streamlit as st
 
 def apply_custom_styles():
     """应用自定义样式"""
-    # 隐藏默认的Streamlit样式
-    hide_default_style = """
+    # 隐藏默认的Streamlit样式并应用全局样式
+    custom_css = """
         <style>
+        /* ---------------- Global Reset & Typography ---------------- */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+        
+        html, body, [class*="css"] {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #1f2937;
+        }
+        
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
 
-        /* 自定义滚动条 */
+        /* Main container background */
+        .stApp {
+            background-color: #f9fafb; /* Very light gray/white */
+        }
+
+        /* ---------------- Scrollbars ---------------- */
         ::-webkit-scrollbar {
-            width: 8px;
+            width: 6px;
+            height: 6px;
         }
 
         ::-webkit-scrollbar-track {
-            background: #f1f1f1;
-            border-radius: 4px;
+            background: transparent;
         }
 
         ::-webkit-scrollbar-thumb {
-            background: #888;
-            border-radius: 4px;
+            background: #d1d5db;
+            border-radius: 3px;
         }
 
         ::-webkit-scrollbar-thumb:hover {
-            background: #555;
+            background: #9ca3af;
         }
 
-        /* 自定义按钮样式 */
-        .stButton button {
-            border-radius: 8px;
-            font-weight: 500;
+        /* ---------------- Layout & Grid System ---------------- */
+        /* 强制左右布局 - 确保聊天和会话列表水平排列 */
+        .stColumns {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important; /* 防止换行 */
+            gap: 0 !important; /* 移除gap，使用自定义分隔 */
+            align-items: flex-start !important;
+            width: 100% !important;
+        }
+
+        .stColumns > div {
+            flex-shrink: 0 !important;
+            height: fit-content !important;
+        }
+
+        /* 左侧聊天区域 (75%) */
+        .stColumns > div:first-child {
+            flex: 3 !important;
+            min-width: 60% !important;
+            background-color: white !important;
+            padding: 2rem !important;
+            min-height: 85vh !important;
+            border-radius: 16px !important;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
+            margin-right: 1rem !important;
+            border: 1px solid #f3f4f6;
+        }
+
+        /* 中间分隔 (Hidden/Small) */
+        .stColumns > div:nth-child(2) {
+            flex: 0.1 !important;
+            min-width: 8px !important;
+            max-width: 12px !important;
+            display: flex !important;
+            align-items: stretch !important;
+            justify-content: center !important;
+            padding: 0 !important;
+        }
+
+        /* 右侧会话列表区域 (25%) */
+        .stColumns > div:last-child {
+            flex: 1 !important;
+            min-width: 280px !important;
+            max-width: 350px !important;
+            background-color: #f8f9fa !important;
+            padding: 1.5rem !important;
+            border-radius: 16px !important;
+            box-shadow: -4px 0 12px rgba(0,0,0,0.08) !important;
+            overflow-y: auto !important;
+            max-height: 85vh !important;
+            position: relative !important;
+            border: 1px solid #f3f4f6;
+        }
+
+        /* ---------------- Chat Input Area ---------------- */
+        div[data-testid="stChatInput"] {
+            position: fixed;
+            bottom: 3.5rem;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(850px, calc(100% - 4rem));
+            z-index: 999;
+            background-color: rgba(243, 244, 246, 0.95); /* Elegant light gray (Gray 100) */
+            backdrop-filter: blur(12px);
+            padding: 1.2rem 1.5rem;
+            border-radius: 20px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.5); /* Subtle inner highlight */
             transition: all 0.3s ease;
+        }
+
+        div[data-testid="stChatInput"]:focus-within {
+            background-color: rgba(255, 255, 255, 0.98); /* Light up on focus */
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(16, 185, 129, 0.2);
+            transform: translateX(-50%) translateY(-2px);
+        }
+        
+        /* Hide the default streamlit input border/background to use our custom one */
+        .stChatInputContainer {
+            background: transparent !important;
+        }
+        
+        /* ---------------- Components ---------------- */
+        
+        /* Buttons */
+        .stButton button {
+            border-radius: 10px;
+            font-weight: 600;
+            border: none;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            transition: all 0.2s;
+            padding: 0.5rem 1rem;
         }
 
         .stButton button:hover {
             transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Primary Buttons (Streamlit default primary) */
+        .stButton button[kind="primary"] {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
         }
 
-        /* 自定义输入框样式 */
+        /* Inputs */
         .stTextInput input, .stNumberInput input, .stSelectbox select {
-            border-radius: 8px;
-            border: 2px solid #e0e0e0;
-            transition: border-color 0.3s ease;
+            border-radius: 10px;
+            border: 1px solid #e5e7eb;
+            background-color: #f9fafb;
+            padding: 0.5rem 0.75rem;
+            transition: all 0.2s;
         }
 
         .stTextInput input:focus, .stNumberInput input:focus, .stSelectbox select:focus {
-            border-color: #4CAF50;
-            box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+            background-color: white;
+            border-color: #10b981;
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
         }
 
-        /* 自定义卡片样式 */
-        .card {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            margin: 10px 0;
-            border-left: 4px solid #4CAF50;
+        /* Expanders (Session List Items) */
+        .stExpander {
+            border: none !important;
+            box-shadow: none !important;
+            background: transparent !important;
         }
-
-        /* 自定义消息样式 */
-        .user-message {
-            background: #e3f2fd;
-            border-radius: 12px;
-            padding: 12px 16px;
-            margin: 8px 0;
-            border-left: 4px solid #2196F3;
+        
+        .stExpander > div:first-child {
+            border: 1px solid #e5e7eb !important;
+            border-radius: 12px !important;
+            background-color: white !important;
+            margin-bottom: 0.5rem;
         }
-
-        .assistant-message {
-            background: #f5f5f5;
-            border-radius: 12px;
-            padding: 12px 16px;
-            margin: 8px 0;
-            border-left: 4px solid #4CAF50;
-        }
-
-        /* 自定义状态指示器 */
-        .status-healthy {
-            color: #4CAF50;
-            font-weight: bold;
-        }
-
-        .status-error {
-            color: #f44336;
-            font-weight: bold;
-        }
-
-        .status-warning {
-            color: #ff9800;
-            font-weight: bold;
-        }
-
-        /* 自定义表格样式 */
-        .dataframe {
-            border-radius: 8px;
-            overflow: hidden;
-        }
-
-        .dataframe th {
-            background: #f8f9fa;
-            font-weight: 600;
-        }
-
-        /* 聊天界面样式 */
-        .chat-container {
-            max-height: 70vh;
-            overflow-y: auto;
-            margin-bottom: 20px;
-        }
-
-        /* 输入框样式优化 */
-        .stChatInput {
-            position: sticky;
-            bottom: 0;
-            background: white;
-            padding: 20px 0;
-            border-top: 1px solid #e0e0e0;
-            margin-top: 20px;
-        }
-
-        /* 对话消息样式 */
+        
+        /* ---------------- Chat Messages ---------------- */
         .stChatMessage {
-            margin-bottom: 16px;
+            background-color: transparent !important;
+            padding: 1rem !important;
+            border-radius: 12px;
+            margin-bottom: 1rem;
         }
 
-        .stChatMessage.user {
-            margin-left: auto;
-            margin-right: 0;
-            max-width: 70%;
+        .stChatMessage[data-testid="stChatMessage"]:nth-child(odd) {
+            /* User message usually */
         }
 
-        .stChatMessage.assistant {
-            margin-left: 0;
-            margin-right: auto;
-            max-width: 70%;
+        /* Avatars */
+        .stChatMessage .stAvatar {
+            background-color: #e5e7eb;
+            color: #4b5563;
+        }
+        
+        /* ---------------- Typography ---------------- */
+        h1, h2, h3 {
+            font-weight: 700;
+            color: #111827;
+            letter-spacing: -0.025em;
+        }
+        
+        p, li, span {
+            line-height: 1.6;
+        }
+        
+        /* ---------------- Right Panel Specifics ---------------- */
+        
+        /* 标题样式 */
+        .stColumns > div:last-child .stMarkdown h3 {
+            color: #374151 !important;
+            font-size: 1.3em !important;
+            font-weight: 600 !important;
+            margin: 0 0 16px 0 !important;
+            padding-bottom: 8px !important;
+            border-bottom: 2px solid #10b981 !important;
         }
 
-        /* 自定义标签页样式 */
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 8px;
+        /* 第一个标题（会话列表）使用绿色分割线 */
+        .stColumns > div:last-child .stMarkdown h3:first-of-type {
+            border-bottom-color: #10b981 !important;
         }
 
-        .stTabs [data-baseweb="tab"] {
-            border-radius: 8px 8px 0 0;
+        /* 分割线样式 - 更微妙 */
+        .stColumns > div:last-child .stDivider {
+            margin: 16px 0 !important;
+            border-color: #f3f4f6 !important;
+            border-width: 1px !important;
+        }
+
+        /* 优化按钮样式 */
+        .stColumns > div:last-child .stButton > button {
+            width: 100% !important;
+            margin-bottom: 8px !important;
+            border-radius: 6px !important;
+        }
+
+        /* 优化expander样式 */
+        .stColumns > div:last-child .stExpander {
+            background-color: #f8f9fa !important;
+            border-radius: 8px !important;
+            border: 1px solid #e0e0e0 !important;
+            margin-bottom: 16px !important;
+        }
+
+        .stColumns > div:last-child .stExpander > div:first-child {
+            background-color: #f8f9fa !important;
+            border-radius: 8px 8px 0 0 !important;
+            border-bottom: 1px solid #e0e0e0 !important;
+        }
+
+        .stColumns > div:last-child .stExpander > div:last-child {
+            background-color: white !important;
+            border-radius: 0 0 8px 8px !important;
+        }
+
+        /* 优化会话列表项样式 */
+        .stColumns > div:last-child .stExpander .stContainer {
+            margin-bottom: 8px !important;
+            padding: 8px !important;
+            border-radius: 6px !important;
+            border: 1px solid #e5e7eb !important;
+            background-color: white !important;
+            transition: all 0.2s ease !important;
+        }
+
+        .stColumns > div:last-child .stExpander .stContainer:hover {
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+            transform: translateY(-1px) !important;
+        }
+
+        /* 当前会话高亮 */
+        .stColumns > div:last-child .stExpander .stContainer:has([data-testid*="session"]:has-text("🔵")) {
+            background-color: #dbeafe !important;
+            border-color: #3b82f6 !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
+        }
+
+        /* 响应式调整 */
+        @media (max-width: 768px) {
+            .stColumns > div:last-child {
+                padding: 16px !important;
+                margin-left: 0.5rem !important;
+            }
+
+            .stColumns > div:last-child .stMarkdown h3 {
+                font-size: 1.2em !important;
+            }
+        }
+        
+        section[data-testid="stSidebar"] {
+            background: #ffffff !important;
+            border-radius: 16px !important;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.08) !important;
+            border: 1px solid #f3f4f6 !important;
+        }
+        
+        section[data-testid="stSidebar"] .block-container {
+            padding: 1rem 1rem !important;
+        }
+        
+        section[data-testid="stSidebar"] .stMarkdown h3 {
+            color: #374151 !important;
+            font-size: 1.15em !important;
+            font-weight: 600 !important;
+            margin: 0 0 12px 0 !important;
+            padding-bottom: 8px !important;
+            border-bottom: 2px solid #10b981 !important;
+        }
+        
+        section[data-testid="stSidebar"] .stButton > button {
+            width: 100% !important;
+            border-radius: 10px !important;
+            margin-bottom: 10px !important;
+        }
+        
+        section[data-testid="stSidebar"] .stSelectbox select,
+        section[data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"],
+        section[data-testid="stSidebar"] .stTextInput input,
+        section[data-testid="stSidebar"] .stNumberInput input {
+            background-color: #f9fafb !important;
+            border: 1px solid #e5e7eb !important;
+            border-radius: 10px !important;
+            padding: 0.5rem 0.75rem !important;
+        }
+        
+        section[data-testid="stSidebar"] .stSelectbox select:focus,
+        section[data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"]:focus-within,
+        section[data-testid="stSidebar"] .stTextInput input:focus,
+        section[data-testid="stSidebar"] .stNumberInput input:focus {
+            background-color: #ffffff !important;
+            border-color: #10b981 !important;
+            box-shadow: 0 0 0 3px rgba(16,185,129,0.1) !important;
+        }
+        
+        section[data-testid="stSidebar"] .stMetric {
+            background: #f8fafc !important;
+            border: 1px solid #eef2f7 !important;
+            border-radius: 12px !important;
+            padding: 0.75rem !important;
+            margin-bottom: 10px !important;
         }
         </style>
     """
 
-    st.markdown(hide_default_style, unsafe_allow_html=True)
+    st.markdown(custom_css, unsafe_allow_html=True)
 
 
 def apply_dark_theme():

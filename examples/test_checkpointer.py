@@ -12,7 +12,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from src.core.state.base_state import GraphState
-from src.agents.react_agent import ConversationState
+from src.graphs.react import ConversationState
 
 
 class MockLLM:

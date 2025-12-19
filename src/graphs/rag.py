@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-@File    : rag_agent.py
+@File    : rag.py
 @Time    : 2025/12/9 14:38
 @Desc    : 基于LangGraph标准的RAG工作流
 """
@@ -10,7 +10,6 @@ from typing import Dict, Any, List, Optional, Annotated
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import START, END
-from langchain_core.tools import BaseTool
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph.state import CompiledStateGraph
@@ -38,7 +37,6 @@ class RAGGraph(BaseGraph):
     def __init__(
             self,
             llm: BaseChatModel,
-            tools: Optional[List[BaseTool]] = None,
             knowledge_base: Optional[Any] = None,
             checkpointer: Optional[BaseCheckpointSaver] = None,
             system_prompt: Optional[str] = None
@@ -58,7 +56,6 @@ class RAGGraph(BaseGraph):
         )
 
         self.llm = llm
-        self.tools = tools or []
         self.knowledge_base = knowledge_base
         self.system_prompt = system_prompt or "你是一个基于知识库回答问题的AI助手。"
         self.checkpointer = checkpointer or InMemorySaver()
@@ -191,10 +188,7 @@ class RAGGraph(BaseGraph):
         ]
         try:
             # 调用LLM（异步）
-            if self.tools:
-                message = await self.llm.bind_tools(self.tools).ainvoke(messages)
-            else:
-                message = await self.llm.ainvoke(messages)
+            message = await self.llm.ainvoke(messages)
 
             return {
                 "messages": [message],
@@ -211,9 +205,8 @@ class RAGGraph(BaseGraph):
             }
 
 
-def create_rag_agent(
+def create_rag_graph(
         llm: BaseChatModel,
-        tools: Optional[list[BaseTool]] = None,
         knowledge_base: Optional[Any] = None,
         system_prompt: Optional[str] = None,
         checkpointer: Optional[BaseCheckpointSaver] = None
@@ -233,7 +226,6 @@ def create_rag_agent(
     """
     workflow = RAGGraph(
         llm=llm,
-        tools=tools,
         knowledge_base=knowledge_base,
         system_prompt=system_prompt,
         checkpointer=checkpointer
