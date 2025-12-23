@@ -4,7 +4,7 @@ API路由模块 - 统一导出所有路由
 """
 from .system_routes import router as system_router, init_system_dependencies
 from .chat_routes import router as chat_router, init_chat_dependencies
-from .knowledge_base_routes import router as kb_router, init_kb_dependencies
+from .kb_routes import router as kb_router, init_kb_dependencies
 from .tool_routes import router as tool_router, init_tool_dependencies
 from .auth_routes import router as auth_router, init_auth_dependencies
 from .user_routes import router as user_router, init_user_dependencies

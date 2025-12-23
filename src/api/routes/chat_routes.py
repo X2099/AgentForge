@@ -14,7 +14,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from src.config import SystemConfig
 from src.core.agents.agent_manager import AgentManager
-from src.knowledge.kb_manager import KnowledgeBaseManager
+from src.knowledge.knowledge_manager import KnowledgeBaseManager
 from src.tools.tool_manager import get_tool_manager
 from src.graphs import create_react_graph, create_rag_graph
 from ..models import ChatRequest, ChatResponse

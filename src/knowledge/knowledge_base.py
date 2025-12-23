@@ -1,110 +1,85 @@
 # -*- coding: utf-8 -*-
 """
 @File    : knowledge_base.py
-@Time    : 2025/12/8 15:25
-@Desc    : 
+@Time    : 2025/12/9
+@Desc    : 基于LangChain标准组件的知识库实现
 """
-from typing import List, Dict, Any, Optional
 from datetime import datetime
+from typing import List, Dict, Any, Optional
 import logging
 
-from .document_loaders import DocumentLoaderFactory
-from .text_splitters import RecursiveTextSplitter, SemanticTextSplitter
-from .embeddings import EmbedderFactory
-from .vector_stores import VectorStoreFactory
-from .document_loaders.base_loader import Document
+from langchain_core.documents import Document
+from langchain_core.retrievers import BaseRetriever
+
+from .knowledge_models import KnowledgeConfig
+from .langchain.splitters import SplitterFactory
+from .langchain.loaders import DocumentLoaderFactory
+from .langchain.embeddings import EmbedderFactory
+from .vectorstores import VectorStoreFactory
 
 logger = logging.getLogger(__name__)
 
 
 class KnowledgeBase:
-    """知识库主类"""
+    """
+    基于LangChain标准组件的知识库
+    """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: KnowledgeConfig):
         """
         初始化知识库
 
         Args:
-            config: 知识库配置字典
+            config: 知识库配置
         """
-        self.config = config
-        self.name = config.get("name", "default_kb")
-        self.description = config.get("description", "")
-
-        # 初始化组件
-        self._init_splitter()
-        self._init_embedder()
-        self._init_vector_store()
-
+        # self.config = config
+        self.name = config.name
+        self.description = config.description
+        # 文档分割器
+        self.splitter = SplitterFactory.create_splitter(
+            splitter_type=config.splitter_type,
+            chunk_size=config.chunk_size,
+            chunk_overlap=config.chunk_overlap
+        )
+        # 嵌入模型
+        self.embedding = EmbedderFactory.create_embedder(
+            embedder_type=config.embedding_type,
+            **config.embedding_config
+        )
+        # 向量存储
+        self.vector_store = VectorStoreFactory.create_store(
+            store_type=config.vectorstore_type,
+            embeddings=self.embedding,
+            persist_dir=config.persist_directory,
+            **config.vectorstore_config
+        )
         # 知识库状态
+        self.persist_directory = config.persist_directory
         self.is_initialized = False
         self.document_count = 0
         self.last_updated = None
 
-    def _init_splitter(self):
-        """初始化文本分割器"""
-        splitter_type = self.config.get("splitter_type", "recursive")
-        chunk_size = self.config.get("chunk_size", 500)
-        chunk_overlap = self.config.get("chunk_overlap", 50)
+    def load_state(self, state: dict):
+        self.is_initialized = state["is_initialized"]
+        self.document_count = state["document_count"]
+        self.last_updated = state["last_updated"]
 
-        if splitter_type == "semantic":
-            model_name = self.config.get("semantic_model", "paraphrase-multilingual-MiniLM-L12-v2")
-            threshold = self.config.get("semantic_threshold", 0.5)
-            self.splitter = SemanticTextSplitter(
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-                model_name=model_name,
-                threshold=threshold
-            )
-        else:
-            self.splitter = RecursiveTextSplitter(
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap
-            )
-
-    def _init_embedder(self):
-        """初始化嵌入器"""
-        embedder_config = self.config.get("embedder", {})
-        if not embedder_config:
-            # 默认配置
-            embedder_config = {
-                "embedder_type": "openai",
-                "model": "text-embedding-3-small"
-            }
-
-        self.embedder = EmbedderFactory.create_embedder(**embedder_config)
-
-    def _init_vector_store(self):
-        """初始化向量存储"""
-        store_config = self.config.get("vector_store", {})
-        if not store_config:
-            # 默认配置
-            store_config = {
-                "store_type": "chroma",
-                "collection_name": self.name,
-                "persist_directory": f"./data/vector_stores/{self.name}"
-            }
-
-        # 添加嵌入器配置
-        embedder_config = self.config.get("embedder", {})
-
-        self.vector_store = VectorStoreFactory.create_store(
-            embedder_config=embedder_config,
-            **store_config
-        )
-
-    def add_documents(self,
-                      file_paths: List[str],
-                      batch_size: int = 10,
-                      show_progress: bool = True) -> Dict[str, Any]:
+    def add_documents(
+            self,
+            file_paths: List[str],
+            batch_size: int = 10,
+            show_progress: bool = True,
+            metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
-        添加文档到知识库
-
+        添加文档到知识库（同步）
+        
         Args:
             file_paths: 文件路径列表
             batch_size: 批处理大小
             show_progress: 是否显示进度
-
+            metadata: 额外的元数据
+            
         Returns:
             处理统计信息
         """
@@ -117,19 +92,24 @@ class KnowledgeBase:
         if show_progress:
             print(f"开始处理 {total_files} 个文件...")
 
+        # 加载文档
         for i, file_path in enumerate(file_paths, 1):
             try:
                 if show_progress:
-                    print(f"[{i}/{total_files}] 处理: {file_path}")
+                    print(f"[{i}/{total_files}] 加载: {file_path}")
 
-                # 加载文档
                 loader = DocumentLoaderFactory.create_loader(file_path)
                 documents = loader.load()
+                # 添加文件路径到元数据
+                for doc in documents:
+                    doc.metadata["source"] = str(file_path)
+                    if metadata:
+                        doc.metadata.update(metadata)
 
                 # 分割文档
                 split_documents = self.splitter.split_documents(documents)
-
                 all_documents.extend(split_documents)
+
                 processed_files.append({
                     "path": file_path,
                     "original_docs": len(documents),
@@ -146,141 +126,106 @@ class KnowledgeBase:
                     "error": str(e)
                 })
 
-        # 批量处理文档
+        # 添加到向量存储
         if all_documents:
-            total_chunks = len(all_documents)
-
             if show_progress:
-                print(f"开始嵌入 {total_chunks} 个chunk...")
+                print(f"添加 {len(all_documents)} 个文档块到向量存储...")
 
-            # 批量嵌入
-            embeddings = []
-            for i in range(0, total_chunks, batch_size):
-                batch_docs = all_documents[i:i + batch_size]
-                batch_texts = [doc.content for doc in batch_docs]
-
+            try:
+                self.vector_store.add_documents(all_documents)
+                self.document_count += len(all_documents)
                 if show_progress:
-                    progress = min(i + batch_size, total_chunks)
-                    print(f"嵌入进度: {progress}/{total_chunks}")
+                    print(f"成功添加 {len(all_documents)} 个文档块")
+            except Exception as e:
+                logger.error(f"添加文档到向量存储失败: {str(e)}")
 
-                try:
-                    batch_embeddings = self.embedder.embed_documents(batch_texts)
-                    embeddings.extend(batch_embeddings)
-                except Exception as e:
-                    logger.error(f"嵌入失败: {str(e)}")
-                    # 为失败的批次填充None
-                    embeddings.extend([None] * len(batch_docs))
-
-            # 过滤掉嵌入失败的文档
-            valid_documents = []
-            valid_embeddings = []
-
-            for doc, emb in zip(all_documents, embeddings):
-                if emb is not None:
-                    valid_documents.append(doc)
-                    valid_embeddings.append(emb)
-
-            # 添加到向量存储
-            if valid_documents:
-                self.vector_store.add_documents(valid_documents, valid_embeddings)
-                self.document_count += len(valid_documents)
-
-                if show_progress:
-                    print(f"成功添加 {len(valid_documents)} 个chunk到知识库")
-            else:
-                logger.warning("没有有效的文档可以添加到知识库")
-
-        # 更新状态
         self.last_updated = datetime.now()
         self.is_initialized = True
 
-        # 持久化
-        self.vector_store.persist()
-
-        # 返回统计信息
-        stats = {
+        return {
             "total_files": total_files,
             "processed_files": len(processed_files),
             "failed_files": len(failed_files),
             "total_chunks": len(all_documents),
-            "valid_chunks": len(valid_documents) if 'valid_documents' in locals() else 0,
             "document_count": self.document_count,
             "processed_files_detail": processed_files,
-            "failed_files_detail": failed_files
+            "failed_files_detail": failed_files,
+            "is_initialized": self.is_initialized,
+            "last_updated": self.last_updated
         }
 
-        return stats
-
-    def search(self,
-               query: str,
-               k: int = 4,
-               filter_dict: Optional[Dict] = None) -> List[Document]:
+    def search(
+            self,
+            query: str,
+            k: int = 4,
+            filter_dict: Optional[Dict] = None
+    ) -> List[Document]:
         """
         搜索知识库
-
+        
         Args:
             query: 查询文本
             k: 返回结果数量
             filter_dict: 过滤条件
-
+            
         Returns:
             相关文档列表
         """
         try:
-            # 生成查询嵌入
-            query_embedding = self.embedder.embed_query(query)
-
-            # 搜索向量存储
-            results = self.vector_store.search(
-                query=query,
-                k=k,
-                filter_dict=filter_dict,
-                embedding=query_embedding
-            )
-
-            return results
-
+            # 使用向量存储的相似度搜索
+            return self.vector_store.similarity_search(query, k=k)
         except Exception as e:
+            raise e
             logger.error(f"搜索失败: {str(e)}")
             return []
 
-    def get_stats(self, detailed: bool = False) -> Dict[str, Any]:
-        """获取知识库统计信息"""
-        if detailed and hasattr(self.vector_store, 'get_detailed_stats'):
-            vector_store_stats = self.vector_store.get_detailed_stats()
-        else:
-            vector_store_stats = self.vector_store.get_collection_stats()
+    def as_retriever(
+            self,
+            search_type: str = "similarity",
+            search_kwargs: Optional[Dict[str, Any]] = None
+    ) -> BaseRetriever:
+        """
+        创建Retriever接口
+        
+        Args:
+            search_type: 搜索类型（similarity, mmr等）
+            search_kwargs: 搜索参数
+            
+        Returns:
+            LangChain Retriever
+        """
+        search_kwargs = search_kwargs or {"k": 4}
+        return self.vector_store.as_retriever(
+            search_type=search_type,
+            search_kwargs=search_kwargs
+        )
 
-        stats = {
+    def get_stats(self) -> Dict[str, Any]:
+        """获取知识库统计信息"""
+        try:
+            # 尝试获取集合统计信息
+            if hasattr(self.vector_store, "_collection"):
+                count = self.vector_store._collection.count()
+            else:
+                count = self.document_count
+        except Exception as e:
+            logger.error(f"获取向量库中文档数时异常：{e}")
+            count = self.document_count
+
+        return {
             "name": self.name,
             "description": self.description,
+            "document_count": count,
+            "embedding_model": str(self.embedding) if hasattr(self.embedding, "__class__") else "unknown",
+            "vector_store_type": type(self.vector_store).__name__,
             "is_initialized": self.is_initialized,
-            "document_count": self.document_count,
-            "last_updated": self.last_updated.isoformat() if self.last_updated else None,
-            "splitter_type": self.config.get("splitter_type", "recursive"),
-            "chunk_size": self.config.get("chunk_size", 500),
-            "chunk_overlap": self.config.get("chunk_overlap", 50),
-            "vector_store": vector_store_stats
+            "last_updated": self.last_updated
         }
 
-        return stats
-
-    def clear(self):
-        """清空知识库"""
-        # 注意：具体实现取决于向量存储
-        self.document_count = 0
-        self.last_updated = None
-        self.is_initialized = False
-
-        # TODO: 实现向量存储的清空方法
-        logger.warning("清空知识库功能尚未完全实现")
-
-    def delete_documents(self, filter_dict: Dict):
-        """
-        删除文档
-
-        Args:
-            filter_dict: 过滤条件
-        """
-        # TODO: 根据过滤条件删除文档
-        pass
+    def delete_documents(self, ids: List[str]):
+        """删除文档"""
+        if hasattr(self.vector_store, "delete"):
+            self.vector_store.delete(ids)
+            logger.info(f"删除 {len(ids)} 个文档")
+        else:
+            logger.warning("向量存储不支持删除操作")

@@ -21,19 +21,19 @@ async def chat(request: ChatRequest):
 
 async def create_knowledge_base(request: KnowledgeBaseRequest):
     """创建知识库"""
-    from .routes.knowledge_base_routes import create_knowledge_base as create_kb_route
+    from .routes.kb_routes import create_knowledge_base as create_kb_route
     return await create_kb_route(request)
 
 
 async def list_knowledge_bases():
     """列出知识库"""
-    from .routes.knowledge_base_routes import list_knowledge_bases as list_kb_route
+    from .routes.kb_routes import list_knowledge_bases as list_kb_route
     return await list_kb_route()
 
 
 async def search_knowledge_base(kb_name: str, query: str, k: int = 5):
     """搜索知识库"""
-    from .routes.knowledge_base_routes import search_knowledge_base as search_kb_route
+    from .routes.kb_routes import search_knowledge_base as search_kb_route
     return await search_kb_route(kb_name, query, k)
 
 

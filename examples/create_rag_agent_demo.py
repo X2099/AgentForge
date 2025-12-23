@@ -52,7 +52,7 @@ async def demo_basic_rag_agent():
 
         # 3. 配置知识库
         print("\n3. 配置知识库...")
-        from src.knowledge.kb_manager import KnowledgeBaseManager
+        from src.knowledge.knowledge_manager import KnowledgeBaseManager
         kb_manager = KnowledgeBaseManager(use_database=True)
 
         # 查找现有知识库

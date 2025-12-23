@@ -4,20 +4,26 @@
 """
 import streamlit as st
 import pandas as pd
+import requests
+from .. import API_BASE_URL
 
 
 class KnowledgeBaseOverview:
     """知识库总览组件"""
-
-    def __init__(self, kb_manager):
-        self.kb_manager = kb_manager
 
     def render(self):
         """渲染总览页面"""
         st.subheader("📊 知识库总览")
 
         # 获取所有知识库
-        knowledge_bases = self.kb_manager.list_knowledge_bases()
+        response = requests.get(f"{API_BASE_URL}/knowledge_base/list")
+        if response.status_code == 200:
+            knowledge_bases = response.json()
+            knowledge_bases = knowledge_bases.get("knowledge_bases")
+        else:
+            st.error(f"❌ 获取知识库列表失败 (状态码: {response.status_code})")
+            st.caption(f"错误详情: {response.text}")
+            return
 
         if not knowledge_bases:
             st.info("📭 暂无知识库，请先创建知识库。")
@@ -79,24 +85,25 @@ class KnowledgeBaseOverview:
                 # 使用session_state来跟踪删除状态，避免st.button的瞬时性问题
                 delete_action_key = f"delete_action_{selected_kb}"
                 if st.button("🗑️ 删除", key=f"delete_btn_{selected_kb}"):
-                    st.info(f"🔍 调试: 删除按钮被点击 for '{selected_kb}'")
                     st.session_state[delete_action_key] = True
 
                 # 检查是否需要显示删除确认界面
                 if st.session_state.get(delete_action_key, False):
-                    st.info(f"🔍 调试: 显示删除确认界面 for '{selected_kb}'")
                     self._delete_knowledge_base(selected_kb)
                     # 注意：删除成功后会在_execute_delete中清理这个状态
 
     def _show_kb_details(self, kb_name: str):
         """显示知识库详情"""
-        kb = self.kb_manager.get_knowledge_base(kb_name)
-        if not kb:
+        response = requests.get(f"{API_BASE_URL}/knowledge_base/{kb_name}/detail")
+        if response.status_code == 200:
+            stats = response.json()
+        else:
+            st.error(f"❌ 获取知识库列表失败 (状态码: {response.status_code})")
+            st.caption(f"错误详情: {response.text}")
+            return
+        if not stats:
             st.error(f"❌ 知识库 '{kb_name}' 不存在")
             return
-
-        stats = kb.get_stats(detailed=True)
-
         with st.expander(f"📋 知识库详情: {kb_name}", expanded=True):
             col1, col2 = st.columns(2)
 
@@ -205,8 +212,6 @@ class KnowledgeBaseOverview:
     def _execute_delete(self, kb_name: str, delete_data: bool):
         """执行删除操作"""
         try:
-            import requests
-            from .. import API_BASE_URL
 
             with st.spinner("🗑️ 正在删除知识库..."):
                 # 调用删除API

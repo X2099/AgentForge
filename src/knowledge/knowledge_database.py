@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from pathlib import Path
 import logging
+from .knowledge_models import KnowledgeConfig
 
 logger = logging.getLogger(__name__)
 
@@ -38,24 +39,24 @@ class KnowledgeBaseDatabase:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
                     -- 配置信息
-                    splitter_type TEXT DEFAULT 'recursive',
-                    chunk_size INTEGER DEFAULT 500,
-                    chunk_overlap INTEGER DEFAULT 50,
+                    splitter_type TEXT,
+                    chunk_size INTEGER,
+                    chunk_overlap INTEGER,
 
                     -- 嵌入配置
-                    embedder_type TEXT DEFAULT 'bge',
-                    embedder_model TEXT,
-
+                    embedding_type TEXT,
+                    embedding_model TEXT,
+                
                     -- 向量存储配置
-                    vector_store_type TEXT DEFAULT 'chroma',
-                    collection_name TEXT,
+                    vectorstore_type TEXT,
                     persist_directory TEXT,
-
+                    
                     -- 语义分割配置 (JSON)
                     semantic_config TEXT,
-
-                    -- 完整配置 (JSON)
-                    full_config TEXT
+                    -- 嵌入完整配置（JSON）
+                    embedding_config TEXT,
+                     -- 向量存储完整配置（JSON）
+                    vectorstore_config TEXT
                 )
             """)
 
@@ -64,6 +65,7 @@ class KnowledgeBaseDatabase:
                     kb_id TEXT PRIMARY KEY REFERENCES knowledge_bases(id) ON DELETE CASCADE,
                     document_count INTEGER DEFAULT 0,
                     total_chunks INTEGER DEFAULT 0,
+                    is_initialized INTEGER DEFAULT 0,
                     last_updated TIMESTAMP,
                     vector_count INTEGER DEFAULT 0,
                     avg_document_length REAL DEFAULT 0.0,
@@ -117,38 +119,31 @@ class KnowledgeBaseDatabase:
 
     # ==================== 知识库基本操作 ====================
 
-    def create_knowledge_base(self, kb_config: Dict[str, Any]) -> bool:
+    def create_knowledge_base(self, kb_config: KnowledgeConfig) -> bool:
         """创建知识库记录"""
         try:
-            kb_id = kb_config.get("name", f"kb_{int(datetime.now().timestamp())}")
-            semantic_config = {}
-            if kb_config.get("splitter_type") == "semantic":
-                semantic_config = {
-                    "semantic_threshold": kb_config.get("semantic_threshold", 0.5),
-                    "semantic_model": kb_config.get("semantic_model", "paraphrase-multilingual-MiniLM-L12-v2")
-                }
-
+            kb_id = kb_config.name
             with sqlite3.connect(str(self.db_path)) as conn:
                 conn.execute("""
                     INSERT OR REPLACE INTO knowledge_bases
                     (id, name, description, splitter_type, chunk_size, chunk_overlap,
-                     embedder_type, embedder_model, vector_store_type, collection_name,
-                     persist_directory, semantic_config, full_config, updated_at)
+                     embedding_type, embedding_model, vectorstore_type, persist_directory,
+                     semantic_config, embedding_config, vectorstore_config, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """, (
-                    kb_id,
-                    kb_config.get("name", kb_id),
-                    kb_config.get("description", ""),
-                    kb_config.get("splitter_type", "recursive"),
-                    kb_config.get("chunk_size", 500),
-                    kb_config.get("chunk_overlap", 50),
-                    kb_config.get("embedder", {}).get("embedder_type", "bge"),
-                    kb_config.get("embedder", {}).get("model", ""),
-                    kb_config.get("vector_store", {}).get("store_type", "chroma"),
-                    kb_config.get("vector_store", {}).get("collection_name", kb_id),
-                    kb_config.get("vector_store", {}).get("persist_directory", f"./data/vector_stores/{kb_id}"),
-                    json.dumps(semantic_config),
-                    json.dumps(kb_config)
+                    kb_config.name,
+                    kb_config.name,
+                    kb_config.description,
+                    kb_config.splitter_type.value,
+                    kb_config.chunk_size,
+                    kb_config.chunk_overlap,
+                    kb_config.embedding_type.value,
+                    kb_config.embedding_model,
+                    kb_config.vectorstore_type.value,
+                    kb_config.persist_directory,
+                    json.dumps(kb_config.semantic_config),
+                    json.dumps(kb_config.embedding_config),
+                    json.dumps(kb_config.vectorstore_config)
                 ))
 
                 # 初始化统计信息
@@ -195,10 +190,9 @@ class KnowledgeBaseDatabase:
         try:
             with sqlite3.connect(str(self.db_path)) as conn:
                 cursor = conn.execute("""
-                    SELECT kb.*, stats.document_count, stats.last_updated
-                    FROM knowledge_bases kb
-                    LEFT JOIN kb_statistics stats ON kb.id = stats.kb_id
-                    ORDER BY kb.created_at DESC
+                    SELECT *
+                    FROM knowledge_bases
+                    ORDER BY created_at DESC
                 """)
 
                 kbs = []
@@ -207,10 +201,9 @@ class KnowledgeBaseDatabase:
                     kb_data = dict(zip(columns, row))
 
                     # 解析JSON字段
-                    if kb_data.get("semantic_config"):
-                        kb_data["semantic_config"] = json.loads(kb_data["semantic_config"])
-                    if kb_data.get("full_config"):
-                        kb_data["full_config"] = json.loads(kb_data["full_config"])
+                    kb_data["semantic_config"] = json.loads(kb_data["semantic_config"])
+                    kb_data["embedding_config"] = json.loads(kb_data["embedding_config"])
+                    kb_data["vectorstore_config"] = json.loads(kb_data["vectorstore_config"])
 
                     kbs.append(kb_data)
 
@@ -239,14 +232,15 @@ class KnowledgeBaseDatabase:
             with sqlite3.connect(str(self.db_path)) as conn:
                 conn.execute("""
                     INSERT OR REPLACE INTO kb_statistics
-                    (kb_id, document_count, total_chunks, last_updated,
+                    (kb_id, document_count, total_chunks, last_updated, is_initialized,
                      vector_count, avg_document_length, total_tokens)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     kb_id,
                     stats.get("document_count", 0),
                     stats.get("total_chunks", 0),
                     datetime.now().isoformat(),
+                    stats.get("is_initialized", 0),
                     stats.get("vector_count", 0),
                     stats.get("avg_document_length", 0.0),
                     stats.get("total_tokens", 0)

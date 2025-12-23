@@ -8,7 +8,7 @@ from typing import Optional, List
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
-from ...knowledge.kb_manager import KnowledgeBaseManager
+from ...knowledge.knowledge_manager import KnowledgeBaseManager
 
 logger = logging.getLogger(__name__)
 

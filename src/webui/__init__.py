@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-@File    : __init__.py
+@File    : loaders.py
 @Time    : 2025/12/9 14:43
 @Desc    : WebUI模块初始化
 """

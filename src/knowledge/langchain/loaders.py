@@ -1,22 +1,24 @@
 # -*- coding: utf-8 -*-
 """
-@File    : __init__.py.py
+@File    : loaders.py
 @Time    : 2025/12/8 15:28
-@Desc    : 
+@Desc    : 文档加载工厂
 """
-from .base_loader import BaseDocumentLoader, Document
-from .pdf_loader import PDFLoader
-from .docx_loader import DocxLoader
-from .txt_loader import TxtLoader
-from .markdown_loader import MarkdownLoader
-from .web_loader import WebLoader
+from langchain_core.document_loaders import BaseLoader
+from langchain_community.document_loaders import (
+    TextLoader,
+    PyPDFLoader,
+    UnstructuredWordDocumentLoader,
+    UnstructuredMarkdownLoader,
+    UnstructuredURLLoader
+)
 
 
 class DocumentLoaderFactory:
     """文档加载器工厂"""
 
     @staticmethod
-    def create_loader(file_path: str, **kwargs) -> BaseDocumentLoader:
+    def create_loader(file_path: str, **kwargs) -> BaseLoader:
         """
         根据文件扩展名创建对应的加载器
 
@@ -35,7 +37,7 @@ class DocumentLoaderFactory:
 
         # 检查URL
         if file_path.startswith(('http://', 'https://')):
-            return WebLoader(file_path)
+            return UnstructuredURLLoader([file_path])
 
         # 检查文件是否存在
         path = Path(file_path)
@@ -53,15 +55,14 @@ class DocumentLoaderFactory:
         ext = path.suffix.lower()
 
         loader_map = {
-            '.pdf': PDFLoader,
-            '.docx': DocxLoader,
-            '.doc': DocxLoader,  # .doc需要额外处理，这里使用docx加载器尝试
-            '.txt': TxtLoader,
-            '.text': TxtLoader,
-            '.md': MarkdownLoader,
-            '.markdown': MarkdownLoader,
-            '.html': WebLoader,  # 本地HTML文件
-            '.htm': WebLoader,
+            '.pdf': PyPDFLoader,
+            '.docx': UnstructuredWordDocumentLoader,
+            '.txt': TextLoader,
+            '.text': TextLoader,
+            '.md': UnstructuredMarkdownLoader,
+            '.markdown': UnstructuredMarkdownLoader,
+            '.html': UnstructuredURLLoader,  # 本地HTML文件
+            '.htm': UnstructuredURLLoader,
         }
 
         if ext in loader_map:
@@ -83,7 +84,7 @@ class DocumentLoaderFactory:
 
                 if text_ratio > 0.7:  # 70%以上是可打印字符
                     print(f"警告：未知扩展名 {ext}，尝试作为文本文件处理")
-                    return TxtLoader(file_path, **kwargs)
+                    return TextLoader(file_path, **kwargs)
         except:
             pass
 

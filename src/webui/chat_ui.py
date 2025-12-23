@@ -380,6 +380,7 @@ def render_agent_interface():
         # 右侧：会话列表面板
         render_session_panel("agent")
 
+
 def render_chat_interface(mode):
     """渲染聊天界面"""
     # 为不同模式使用独立的会话历史
@@ -445,7 +446,6 @@ def render_chat_interface(mode):
                 with st.chat_message("assistant"):
                     st.markdown(f"**{msg['role'].upper()}**: {msg['content']}")
 
-        # 极简输入框
         placeholder = "问我关于知识库的问题..." if mode == "rag" else "让我帮您解决问题..."
         user_input = st.chat_input(
             placeholder,
@@ -453,7 +453,6 @@ def render_chat_interface(mode):
             max_chars=2000
         )
 
-        # 处理输入
         if user_input and user_input.strip():
             # 显示用户消息
             with st.chat_message("user"):
@@ -560,7 +559,8 @@ def render_session_panel(mode="default"):
         new_session = create_session_via_api(user_id, mode, model_name=st.session_state.get("selected_model"))
         if new_session:
             session_id = new_session.get("session_id")
-            st.session_state.rrent_session_id =id
+            st.session_state[f"current_session_id_{mode}"] = session_id
+            st.session_state.rrent_session_id = session_id
             # 清空当前模式的对话历史
             history_key = f"conversation_history_{mode}"
             st.session_state[history_key] = []

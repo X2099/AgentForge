@@ -14,7 +14,7 @@ from .routes import (
     auth_router, init_auth_dependencies,
     user_router, init_user_dependencies
 )
-from ..knowledge.kb_manager import KnowledgeBaseManager
+from ..knowledge.knowledge_manager import KnowledgeBaseManager
 from ..config.system_config import SystemConfig
 from ..tools.transports import TransportType
 from ..tools.mcp_client import MCPClient
@@ -51,7 +51,7 @@ def create_app() -> FastAPI:
 def _init_dependencies(app: FastAPI):
     """初始化全局依赖"""
     # 创建全局组件
-    knowledge_base_manager = KnowledgeBaseManager(use_database=True)
+    knowledge_base_manager = KnowledgeBaseManager()
     system_config = SystemConfig()
     # mcp_client = MCPClient(
     #     transport_type=TransportType.HTTP,

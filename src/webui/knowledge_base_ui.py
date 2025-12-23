@@ -6,8 +6,6 @@
 """
 import streamlit as st
 
-from ..knowledge.kb_manager import KnowledgeBaseManager
-from .components.kb_sidebar import KnowledgeBaseSidebar
 from .components.kb_overview import KnowledgeBaseOverview
 from .components.kb_creator import KnowledgeBaseCreator
 from .components.kb_uploader import KnowledgeBaseUploader
@@ -19,17 +17,11 @@ class KnowledgeBaseUI:
     """知识库管理界面"""
 
     def __init__(self):
-        self.kb_manager = KnowledgeBaseManager()
-        self.sidebar = KnowledgeBaseSidebar()
-        self.overview = KnowledgeBaseOverview(self.kb_manager)
-        self.creator = KnowledgeBaseCreator(self.kb_manager)
-        self.uploader = KnowledgeBaseUploader(self.kb_manager)
-        self.search = KnowledgeBaseSearch(self.kb_manager)
+        self.overview = KnowledgeBaseOverview()
+        self.creator = KnowledgeBaseCreator()
+        self.uploader = KnowledgeBaseUploader()
+        self.search = KnowledgeBaseSearch()
         self.config = KnowledgeBaseConfig()
-
-    def render_sidebar(self):
-        """渲染侧边栏"""
-        self.sidebar.render()
 
     def render_main_page(self):
         """渲染主页面"""
@@ -74,7 +66,6 @@ def main():
     ui = KnowledgeBaseUI()
 
     # 渲染页面
-    ui.render_sidebar()
     ui.render_main_page()
 
 

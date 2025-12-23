@@ -29,16 +29,20 @@ class ChatResponse(BaseModel):
 
 class KnowledgeBaseRequest(BaseModel):
     """知识库请求"""
-    file_paths: Optional[List[str]] = None  # 可选，用于创建时添加文档
-    kb_name: str = "default"
+    kb_name: str
+    kb_desc: str
+    splitter_type: str
     chunk_size: int = 500
     chunk_overlap: int = 50
+    embedder: dict
+    vector_store: dict
+    semantic_config: Optional[dict] = None
 
 
 class KnowledgeBaseResponse(BaseModel):
     """知识库响应"""
     kb_name: str
-    document_count: int
+    document_count: int = 0
     status: str
 
 

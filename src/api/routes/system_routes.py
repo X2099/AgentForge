@@ -2,14 +2,17 @@
 """
 系统基础API路由
 """
+from typing import Optional
 from fastapi import APIRouter, HTTPException
+from src.config.system_config import SystemConfig
+from src.knowledge.knowledge_manager import KnowledgeBaseManager
 
 # 创建路由器
 router = APIRouter()
 
 # 全局组件（将在应用启动时初始化）
-knowledge_base_manager = None
-system_config = None
+knowledge_base_manager: Optional[KnowledgeBaseManager] = None
+system_config: Optional[SystemConfig] = None
 
 
 def init_system_dependencies(kb_manager, sys_conf):

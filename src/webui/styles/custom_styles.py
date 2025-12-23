@@ -107,26 +107,66 @@ def apply_custom_styles():
             bottom: 3.5rem;
             left: 50%;
             transform: translateX(-50%);
-            width: min(850px, calc(100% - 4rem));
+            width: min(900px, calc(100% - 3rem));
             z-index: 999;
-            background-color: rgba(243, 244, 246, 0.95); /* Elegant light gray (Gray 100) */
-            backdrop-filter: blur(12px);
             padding: 1.2rem 1.5rem;
             border-radius: 20px;
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.5); /* Subtle inner highlight */
+            border: 2px solid transparent;
+            background-image: linear-gradient(rgba(255,255,255,0.96), rgba(255,255,255,0.96)), linear-gradient(120deg, #7c3aed, #06b6d4, #10b981, #f97316, #ef4444);
+            background-origin: border-box;
+            background-clip: padding-box, border-box;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 16px 50px rgba(124, 58, 237, 0.18), 0 16px 50px rgba(6, 182, 212, 0.18), 0 0 0 1px rgba(0,0,0,0.05);
             transition: all 0.3s ease;
+            animation: stGradientFlow 8s ease infinite;
+            background-size: auto, 200% 200%;
         }
 
         div[data-testid="stChatInput"]:focus-within {
-            background-color: rgba(255, 255, 255, 0.98); /* Light up on focus */
-            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(16, 185, 129, 0.2);
             transform: translateX(-50%) translateY(-2px);
+            box-shadow: 0 24px 70px rgba(124, 58, 237, 0.25), 0 24px 70px rgba(6, 182, 212, 0.25), 0 0 0 2px rgba(16,185,129,0.25);
+            background-image: linear-gradient(rgba(255,255,255,0.98), rgba(255,255,255,0.98)), linear-gradient(120deg, #7c3aed, #06b6d4, #10b981, #f97316, #ef4444);
         }
         
         /* Hide the default streamlit input border/background to use our custom one */
         .stChatInputContainer {
             background: transparent !important;
+        }
+        
+        div[data-testid="stChatInput"] input, 
+        div[data-testid="stChatInput"] textarea {
+            background: transparent !important;
+            border: none !important;
+            outline: none !important;
+            font-size: 1rem !important;
+            color: #111827 !important;
+            caret-color: #7c3aed !important;
+        }
+        
+        div[data-testid="stChatInput"] input::placeholder, 
+        div[data-testid="stChatInput"] textarea::placeholder {
+            color: #6b7280 !important;
+        }
+        
+        div[data-testid="stChatInput"] button {
+            border: none !important;
+            border-radius: 12px !important;
+            padding: 0.5rem 0.9rem !important;
+            color: #ffffff !important;
+            background-image: linear-gradient(135deg, #7c3aed 0%, #06b6d4 50%, #10b981 100%) !important;
+            box-shadow: 0 8px 20px rgba(124,58,237,0.3), 0 4px 12px rgba(6,182,212,0.25) !important;
+            transition: all 0.2s ease !important;
+        }
+        
+        div[data-testid="stChatInput"] button:hover {
+            transform: translateY(-1px) !important;
+            box-shadow: 0 12px 28px rgba(124,58,237,0.35), 0 8px 16px rgba(6,182,212,0.3) !important;
+        }
+        
+        @keyframes stGradientFlow {
+            0% { background-position: center, 0% 50%; }
+            50% { background-position: center, 100% 50%; }
+            100% { background-position: center, 0% 50%; }
         }
         
         /* ---------------- Components ---------------- */
@@ -204,6 +244,14 @@ def apply_custom_styles():
             font-weight: 700;
             color: #111827;
             letter-spacing: -0.025em;
+        }
+        
+        .stApp .block-container {
+            padding-top: 0.25rem !important;
+        }
+        
+        .stApp .block-container h1 {
+            margin-top: 0 !important;
         }
         
         p, li, span {

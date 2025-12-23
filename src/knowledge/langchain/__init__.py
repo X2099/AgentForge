@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 @File    : __init__.py.py
-@Time    : 2025/12/8 16:52
+@Time    : 2025/12/23 8:05
 @Desc    : 
 """
-from .embedder_factory import EmbedderFactory

@@ -3,13 +3,14 @@
 知识库搜索测试组件
 """
 import streamlit as st
+import requests
+from .. import API_BASE_URL
 
 
 class KnowledgeBaseSearch:
     """知识库搜索测试组件"""
 
-    def __init__(self, kb_manager):
-        self.kb_manager = kb_manager
+    def __init__(self):
         self._available_kbs = None
 
     def render(self):
@@ -62,9 +63,6 @@ class KnowledgeBaseSearch:
         """获取可用的知识库列表"""
         if self._available_kbs is None:
             try:
-                import requests
-                from .. import API_BASE_URL
-
                 # 调用API获取知识库列表
                 response = requests.get(f"{API_BASE_URL}/knowledge_base/list", timeout=5)
                 if response.status_code == 200:
@@ -93,9 +91,6 @@ class KnowledgeBaseSearch:
         """执行搜索"""
         with st.spinner("🔍 正在搜索中..."):
             try:
-                import requests
-                from .. import API_BASE_URL
-
                 # 调用后端搜索API
                 params = {
                     "kb_name": kb_name,

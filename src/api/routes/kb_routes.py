@@ -5,7 +5,8 @@
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 
-from src.knowledge.kb_manager import KnowledgeBaseManager
+from src.knowledge.knowledge_manager import KnowledgeBaseManager
+from src.knowledge.knowledge_models import *
 from ..models import (
     KnowledgeBaseRequest, KnowledgeBaseResponse,
     DocumentUploadRequest
@@ -26,45 +27,63 @@ def init_kb_dependencies(kb_manager):
 
 @router.post("/knowledge_base/create", response_model=KnowledgeBaseResponse)
 async def create_knowledge_base(request: KnowledgeBaseRequest):
-    """创建知识库（对标Langchain-Chatchat的知识库管理）"""
+    """创建知识库"""
     try:
         if not knowledge_base_manager:
             raise HTTPException(status_code=500, detail="知识库管理器未初始化")
 
         # 创建或获取知识库配置
-        kb_config = {
-            "name": request.kb_name,
-            "chunk_size": request.chunk_size,
-            "chunk_overlap": request.chunk_overlap,
-            "embedder": {
-                "embedder_type": "bge",
-                "model_name": "BAAI/bge-small-zh-v1.5"
-            },
-            "vector_store": {
-                "store_type": "chroma",
-                "collection_name": request.kb_name
+        embedding_type = request.embedder.get("embedder_type")
+        if embedding_type:
+            embedding_type = EmbedderType(embedding_type)
+        else:
+            embedding_type = EmbedderType.BGE
+
+        embedding_model = request.embedder.get("model", "BAAI/bge-base-zh-v1.5")
+
+        vectorstore_type = request.vector_store.get("store_type")
+        if vectorstore_type:
+            vectorstore_type = VectorStoreType(vectorstore_type)
+
+        if vectorstore_type == VectorStoreType.FAISS:
+            persist_directory = f"./data/knowledge_bases/{vectorstore_type.value}/{request.kb_name}"
+            vectorstore_config = {
+                "dimensions": request.embedder.get('dimensions'),
+                "normalize_embeddings": request.embedder.get('normalize_embeddings', True),
+                "device": request.embedder.get('device', 'cpu')
             }
-        }
+        elif vectorstore_type == VectorStoreType.CHROMA:
+            persist_directory = f"./data/knowledge_bases/{vectorstore_type.value}"
+            vectorstore_config = {
+                "collection_name": request.vector_store.get("collection_name") or request.kb_name
+            }
+        else:
+            raise HTTPException(status_code=400, detail=f"暂不支持改类型的向量数据库：{vectorstore_type}")
 
+        kb_config = KnowledgeConfig(
+            name=request.kb_name,
+            description=request.kb_desc,
+            splitter_type=SplitterType(request.splitter_type),
+            chunk_size=request.chunk_size,
+            chunk_overlap=request.chunk_overlap,
+            embedding_type=embedding_type,
+            embedding_model=embedding_model,
+            vectorstore_type=vectorstore_type,
+            persist_directory=persist_directory,
+            semantic_config=request.semantic_config,
+            embedding_config={"model_name": embedding_model},
+            vectorstore_config=vectorstore_config
+        )
         # 创建知识库
-        kb = knowledge_base_manager.create_knowledge_base(kb_config)
-
-        # 如果提供了文件路径，则添加文档
-        document_count = 0
-        if request.file_paths:
-            stats = knowledge_base_manager.bulk_add_documents(
-                kb_name=request.kb_name,
-                file_paths=request.file_paths
-            )
-            document_count = stats.get("valid_chunks", 0)
+        knowledge_base_manager.create_knowledge_base(kb_config)
 
         return KnowledgeBaseResponse(
             kb_name=request.kb_name,
-            document_count=document_count,
             status="created"
         )
 
     except Exception as e:
+        raise e
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -109,28 +128,37 @@ async def list_knowledge_bases():
         kbs = []
         kb_list = knowledge_base_manager.list_knowledge_bases()
 
+        print("kb_list =>", kb_list)
+
         for kb in kb_list:
+            last_updated = kb.get("last_updated")
+            print("last_updated => ", type(last_updated))
             kb_data = {
                 "name": kb["name"],
                 "description": kb.get("description", ""),
                 "document_count": kb.get("document_count", 0),
-                "last_updated": kb.get("last_updated")
+                "total_chunks": kb.get("total_chunks", 0),
+                "vector_count": kb.get("vector_count", 0),
+                "is_initialized": kb.get("is_initialized", False),
+                "last_updated": kb.get("last_updated"),
             }
-
-            # 如果使用数据库，获取更详细的统计信息
-            if hasattr(knowledge_base_manager, 'db') and knowledge_base_manager.db:
-                stats = knowledge_base_manager.db.get_statistics(kb["name"])
-                if stats:
-                    kb_data.update({
-                        "document_count": stats.get("document_count", 0),
-                        "total_chunks": stats.get("total_chunks", 0),
-                        "vector_count": stats.get("vector_count", 0),
-                        "last_updated": stats.get("last_updated")
-                    })
-
             kbs.append(kb_data)
 
         return {"knowledge_bases": kbs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/knowledge_base/{kb_name}/detail")
+async def detail_knowledge_base(kb_name: str):
+    """获取知识库详情"""
+    try:
+        if not knowledge_base_manager:
+            raise HTTPException(status_code=500, detail="知识库管理器未初始化")
+
+        kb = knowledge_base_manager.get_knowledge_base(kb_name)
+        kb_stats = kb.get_stats()
+        return kb_stats
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -147,11 +175,11 @@ async def search_knowledge_base(kb_name: str, query: str, k: int = 5):
 
         # 格式化结果
         formatted_results = []
-        for doc in results:
+        for doc, score in results:
             formatted_results.append({
-                "content": doc.content,
+                "content": doc.page_content,
                 "source": doc.metadata.get("source", ""),
-                "score": doc.metadata.get("similarity_score", 0)
+                "score": float(score)
             })
 
         return {

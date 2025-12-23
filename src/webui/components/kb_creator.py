@@ -3,15 +3,14 @@
 知识库创建组件
 """
 import streamlit as st
-from pathlib import Path
-import yaml
+import requests
+from .. import API_BASE_URL
 
 
 class KnowledgeBaseCreator:
     """知识库创建组件"""
 
-    def __init__(self, kb_manager):
-        self.kb_manager = kb_manager
+    def __init__(self):
         self._vector_store_options = None
         self._embedder_options = None
 
@@ -19,102 +18,37 @@ class KnowledgeBaseCreator:
         """获取向量存储选项"""
         if self._vector_store_options is None:
             try:
-                import requests
-                from .. import API_BASE_URL
-
                 response = requests.get(f"{API_BASE_URL}/vector-stores/list", timeout=5)
                 if response.status_code == 200:
                     data = response.json()
                     self._vector_store_options = data.get("vector_stores", [])
                 else:
-                    # API调用失败，使用默认选项
-                    self._vector_store_options = [
-                        {"type": "chroma", "name": "ChromaDB (推荐)"},
-                        {"type": "faiss", "name": "FAISS (本地)"},
-                        {"type": "milvus", "name": "Milvus (生产)"}
-                    ]
+                    st.error(f"❌ 获取向量库列表失败 (状态码: {response.status_code})")
+                    st.caption(f"错误详情: {response.text}")
+                    return
             except Exception as e:
                 # 网络错误，使用默认选项
-                self._vector_store_options = [
-                    {"type": "chroma", "name": "ChromaDB (推荐)"},
-                    {"type": "faiss", "name": "FAISS (本地)"},
-                    {"type": "milvus", "name": "Milvus (生产)"}
-                ]
+                st.error(f"❌ 获取向量库列表异常：{e}")
+                st.caption(f"错误详情: {e}")
+                return
         return self._vector_store_options
 
     def _get_embedder_options(self):
         """获取嵌入器选项"""
         if self._embedder_options is None:
             try:
-                import requests
-                from .. import API_BASE_URL
-
                 response = requests.get(f"{API_BASE_URL}/embedders/list", timeout=5)
                 if response.status_code == 200:
                     data = response.json()
                     self._embedder_options = data.get("embedders", [])
                 else:
-                    # API调用失败，使用默认选项
-                    self._embedder_options = [
-                        {
-                            "type": "bge",
-                            "name": "BGE中文模型 (推荐)",
-                            "models": [
-                                {"name": "BAAI/bge-small-zh-v1.5", "description": "小型中文模型"},
-                                {"name": "BAAI/bge-base-zh-v1.5", "description": "基础中文模型"},
-                                {"name": "BAAI/bge-large-zh-v1.5", "description": "大型中文模型"}
-                            ]
-                        },
-                        {
-                            "type": "openai",
-                            "name": "OpenAI Embeddings",
-                            "models": [
-                                {"name": "text-embedding-3-small", "description": "小型模型"},
-                                {"name": "text-embedding-3-large", "description": "大型模型"},
-                                {"name": "text-embedding-ada-002", "description": "经典模型"}
-                            ]
-                        },
-                        {
-                            "type": "local",
-                            "name": "本地 Sentence Transformers",
-                            "models": [
-                                {"name": "sentence-transformers/all-MiniLM-L6-v2", "description": "通用小型模型"},
-                                {"name": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-                                 "description": "多语言模型"}
-                            ]
-                        }
-                    ]
+                    st.error(f"❌ 获取embeddings模型列表失败 (状态码: {response.status_code})")
+                    st.caption(f"错误详情: {response.text}")
+                    return
             except Exception as e:
                 # 网络错误，使用默认选项
-                self._embedder_options = [
-                    {
-                        "type": "bge",
-                        "name": "BGE中文模型 (推荐)",
-                        "models": [
-                            {"name": "BAAI/bge-small-zh-v1.5", "description": "小型中文模型"},
-                            {"name": "BAAI/bge-base-zh-v1.5", "description": "基础中文模型"},
-                            {"name": "BAAI/bge-large-zh-v1.5", "description": "大型中文模型"}
-                        ]
-                    },
-                    {
-                        "type": "openai",
-                        "name": "OpenAI Embeddings",
-                        "models": [
-                            {"name": "text-embedding-3-small", "description": "小型模型"},
-                            {"name": "text-embedding-3-large", "description": "大型模型"},
-                            {"name": "text-embedding-ada-002", "description": "经典模型"}
-                        ]
-                    },
-                    {
-                        "type": "local",
-                        "name": "本地 Sentence Transformers",
-                        "models": [
-                            {"name": "sentence-transformers/all-MiniLM-L6-v2", "description": "通用小型模型"},
-                            {"name": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-                             "description": "多语言模型"}
-                        ]
-                    }
-                ]
+                st.error(f"❌ 获取embeddings模型列表异常：{e}")
+                st.caption(f"错误详情: {e}")
         return self._embedder_options
 
     def render(self):
@@ -124,9 +58,9 @@ class KnowledgeBaseCreator:
         # 知识库基本信息
         col1, col2 = st.columns(2)
         with col1:
-            kb_name = st.text_input("知识库名称", value="my_knowledge_base")
+            kb_name = st.text_input("知识库名称", placeholder="只能使用字母、数字和_，不能以数字开头")
         with col2:
-            kb_description = st.text_input("描述", value="我的知识库")
+            kb_description = st.text_input("描述", placeholder="知识库描述")
 
         # 向量存储配置
         self._render_vector_config()
@@ -158,11 +92,7 @@ class KnowledgeBaseCreator:
         with vector_config_col2:
             # 向量存储特定配置
             if vector_store_type == "chroma":
-                persist_dir = st.text_input(
-                    "持久化目录",
-                    value=f"./data/vector_stores/{st.session_state.get('kb_name', 'kb')}"
-                )
-                collection_name = st.text_input("集合名称", value=st.session_state.get('kb_name', 'kb'))
+                collection_name = st.text_input("集合名称", placeholder="不填的话默认同知识库名")
 
             elif vector_store_type == "faiss":
                 index_type = st.selectbox(
@@ -237,23 +167,10 @@ class KnowledgeBaseCreator:
                     st.info(f"📏 向量维度: {selected_model_info['dimensions']}")
 
             else:
-                # 回退到默认行为（如果API数据不完整）
-                if embedder_type == "openai":
-                    model_name = st.selectbox("模型", ["text-embedding-3-small", "text-embedding-3-large",
-                                                       "text-embedding-ada-002"])
-                    dimensions = st.number_input("维度", min_value=256, max_value=3072, value=1536)
-                elif embedder_type == "local":
-                    model_name = st.selectbox("模型名称", ["sentence-transformers/all-MiniLM-L6-v2",
-                                                           "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-                                                           "自定义模型路径"])
-                    if model_name == "自定义模型路径":
-                        model_name = st.text_input("模型路径")
-                elif embedder_type == "bge":
-                    model_name = st.selectbox("BGE模型", ["BAAI/bge-small-zh-v1.5", "BAAI/bge-base-zh-v1.5",
-                                                          "BAAI/bge-large-zh-v1.5"])
-                    normalize_embeddings = st.checkbox("归一化向量", value=True)
+                st.caption(f"未获取到有效的嵌入模型配置。")
+                return
 
-            # OpenAI特有的配置
+                # OpenAI特有的配置
             if embedder_type == "openai":
                 openai_key = st.text_input("OpenAI API Key", type="password")
 
@@ -272,8 +189,8 @@ class KnowledgeBaseCreator:
             )
             device = st.selectbox(
                 "运行设备",
-                ["auto", "cpu", "cuda"],
-                help="模型运行设备，auto为自动选择"
+                ["cpu", "cuda"],
+                help="模型运行设备"
             )
 
         # 存储配置到session state
@@ -353,16 +270,16 @@ class KnowledgeBaseCreator:
                 try:
                     # 构建配置
                     kb_config = self._build_kb_config(kb_name, kb_description)
-
                     # 调用API创建空的知识库
-                    import requests
-                    from .. import API_BASE_URL
-
                     payload = {
                         "kb_name": kb_name,
+                        "kb_desc": kb_description,
+                        "splitter_type": kb_config["splitter_type"],
                         "chunk_size": kb_config["chunk_size"],
-                        "chunk_overlap": kb_config["chunk_overlap"]
-                        # 注意：不包含file_paths，创建空的知识库
+                        "chunk_overlap": kb_config["chunk_overlap"],
+                        "embedder": kb_config["embedder"],
+                        "vector_store": kb_config["vector_store"],
+                        "semantic_config": kb_config.get("semantic_config", {})
                     }
 
                     response = requests.post(f"{API_BASE_URL}/knowledge_base/create", json=payload, timeout=60)
@@ -380,9 +297,6 @@ class KnowledgeBaseCreator:
                             st.metric("知识库名称", result["kb_name"])
                         with col2:
                             st.metric("初始文档数", result["document_count"])
-
-                        # 保存配置
-                        self._save_kb_config(kb_config)
 
                         # 刷新知识库列表
                         st.rerun()
@@ -408,20 +322,19 @@ class KnowledgeBaseCreator:
         kb_config = {
             "name": kb_name,
             "description": kb_description,
-            "splitter_type": text_config.get('splitter_type', 'recursive'),
-            "chunk_size": text_config.get('chunk_size', 500),
-            "chunk_overlap": text_config.get('chunk_overlap', 50),
+            "splitter_type": text_config.get('splitter_type'),
+            "chunk_size": text_config.get('chunk_size'),
+            "chunk_overlap": text_config.get('chunk_overlap'),
             "embedder": {
-                "embedder_type": embedder_config.get('embedder_type', 'bge'),
-                "model": embedder_config.get('model_name', 'BAAI/bge-small-zh-v1.5'),
+                "embedder_type": embedder_config.get('embedder_type'),
+                "model": embedder_config.get('model_name'),
                 "dimensions": embedder_config.get('dimensions'),
                 "normalize_embeddings": embedder_config.get('normalize_embeddings'),
-                "device": embedder_config.get('device', 'auto')
+                "device": embedder_config.get('device', 'cpu')
             },
             "vector_store": {
                 "store_type": vector_config.get('store_type', 'chroma'),
                 "collection_name": vector_config.get('collection_name', kb_name),
-                "persist_directory": vector_config.get('persist_dir', f"./data/vector_stores/{kb_name}"),
                 "host": vector_config.get('host'),
                 "port": vector_config.get('port')
             }
@@ -429,18 +342,9 @@ class KnowledgeBaseCreator:
 
         # 添加语义分割特定配置
         if text_config.get('splitter_type') == "semantic":
-            kb_config["semantic_threshold"] = text_config.get('semantic_threshold', 0.5)
-            kb_config["semantic_model"] = text_config.get('semantic_model', 'paraphrase-multilingual-MiniLM-L12-v2')
+            kb_config["semantic_config"] = {
+                "semantic_threshold": text_config.get('semantic_threshold', 0.5),
+                "semantic_model": text_config.get('semantic_model', 'paraphrase-multilingual-MiniLM-L12-v2')
+            }
 
         return kb_config
-
-    def _save_kb_config(self, kb_config):
-        """保存知识库配置"""
-        config_dir = Path("./configs/knowledge_bases")
-        config_dir.mkdir(parents=True, exist_ok=True)
-        config_file = config_dir / f"{kb_config['name']}.yaml"
-
-        with open(config_file, "w", encoding="utf-8") as f:
-            yaml.dump(kb_config, f, default_flow_style=False, allow_unicode=True)
-
-        st.info(f"配置文件已保存: {config_file}")

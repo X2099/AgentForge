@@ -4,13 +4,12 @@
 """
 import streamlit as st
 from pathlib import Path
+import requests
+from .. import API_BASE_URL
 
 
 class KnowledgeBaseUploader:
     """知识库文档上传组件"""
-
-    def __init__(self, kb_manager):
-        self.kb_manager = kb_manager
 
     def render(self):
         """渲染文档上传页面"""
@@ -50,9 +49,6 @@ class KnowledgeBaseUploader:
     def _get_available_knowledge_bases(self):
         """获取可用的知识库列表"""
         try:
-            import requests
-            from .. import API_BASE_URL
-
             # 调用API获取知识库列表
             response = requests.get(f"{API_BASE_URL}/knowledge_base/list", timeout=5)
             if response.status_code == 200:
@@ -78,9 +74,6 @@ class KnowledgeBaseUploader:
     def _get_kb_info(self, kb_name):
         """获取知识库信息"""
         try:
-            import requests
-            from .. import API_BASE_URL
-
             # 调用API获取知识库统计信息
             response = requests.get(f"{API_BASE_URL}/knowledge_base/list", timeout=5)
             if response.status_code == 200:
@@ -207,7 +200,8 @@ class KnowledgeBaseUploader:
                         "file_paths": file_paths
                     }
 
-                    response = requests.post(f"{API_BASE_URL}/knowledge_base/upload_documents", json=payload, timeout=300)
+                    response = requests.post(f"{API_BASE_URL}/knowledge_base/upload_documents", json=payload,
+                                             timeout=300)
 
                     if response.status_code == 200:
                         result = response.json()
