@@ -98,18 +98,17 @@ class KnowledgeBaseOverview:
         if response.status_code == 200:
             stats = response.json()
         else:
-            st.error(f"❌ 获取知识库列表失败 (状态码: {response.status_code})")
+            st.error(f"❌ 获取知识库 {kb_name} 详情失败 (状态码: {response.status_code})")
             st.caption(f"错误详情: {response.text}")
             return
         if not stats:
-            st.error(f"❌ 知识库 '{kb_name}' 不存在")
             return
         with st.expander(f"📋 知识库详情: {kb_name}", expanded=True):
             col1, col2 = st.columns(2)
 
             with col1:
-                st.metric("向量存储类型", stats.get("vector_store", {}).get("type", "未知"))
-                st.metric("嵌入模型", stats.get("embedder_type", "未知"))
+                st.metric("向量存储类型", stats.get("vectorstore_type", "未知"))
+                st.metric("嵌入模型", stats.get("embedding_type", "未知"))
                 st.metric("分块大小", stats.get("chunk_size", 0))
 
             with col2:
@@ -119,7 +118,7 @@ class KnowledgeBaseOverview:
 
             # 向量存储详情
             st.subheader("向量存储信息")
-            vector_store_info = stats.get("vector_store", {})
+            vector_store_info = stats.get("vectorstore_info", {})
             st.json(vector_store_info)
 
     def _reindex_knowledge_base(self, kb_name: str):

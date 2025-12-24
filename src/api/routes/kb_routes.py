@@ -2,7 +2,6 @@
 """
 知识库管理相关API路由
 """
-from typing import Optional
 from fastapi import APIRouter, HTTPException
 
 from src.knowledge.knowledge_manager import KnowledgeBaseManager
@@ -115,6 +114,7 @@ async def upload_documents_to_knowledge_base(request: DocumentUploadRequest):
         }
 
     except Exception as e:
+        raise e
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -131,8 +131,6 @@ async def list_knowledge_bases():
         print("kb_list =>", kb_list)
 
         for kb in kb_list:
-            last_updated = kb.get("last_updated")
-            print("last_updated => ", type(last_updated))
             kb_data = {
                 "name": kb["name"],
                 "description": kb.get("description", ""),
@@ -160,6 +158,7 @@ async def detail_knowledge_base(kb_name: str):
         kb_stats = kb.get_stats()
         return kb_stats
     except Exception as e:
+        raise e
         raise HTTPException(status_code=500, detail=str(e))
 
 

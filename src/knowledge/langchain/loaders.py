@@ -4,6 +4,8 @@
 @Time    : 2025/12/8 15:28
 @Desc    : 文档加载工厂
 """
+from pathlib import Path
+
 from langchain_core.document_loaders import BaseLoader
 from langchain_community.document_loaders import (
     TextLoader,
@@ -32,9 +34,7 @@ class DocumentLoaderFactory:
         Raises:
             ValueError: 不支持的文件格式
         """
-        from pathlib import Path
-        import os
-
+        kwargs.update(encoding="utf-8")
         # 检查URL
         if file_path.startswith(('http://', 'https://')):
             return UnstructuredURLLoader([file_path])
@@ -67,7 +67,7 @@ class DocumentLoaderFactory:
 
         if ext in loader_map:
             loader_class = loader_map[ext]
-
+            print(loader_class)
             # 特殊处理：.doc文件需要提醒用户
             if ext == '.doc':
                 print("警告：.doc格式（Word 97-2003）支持有限，建议转换为.docx格式")

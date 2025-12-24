@@ -16,6 +16,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from ..core.graphs.base_graph import BaseGraph
 from ..core.state.base_state import GraphState, DisplayMessage
+from ..knowledge.knowledge_base import KnowledgeBase
 
 
 class RAGState(GraphState):
@@ -37,7 +38,7 @@ class RAGGraph(BaseGraph):
     def __init__(
             self,
             llm: BaseChatModel,
-            knowledge_base: Optional[Any] = None,
+            knowledge_base: Optional[KnowledgeBase] = None,
             checkpointer: Optional[BaseCheckpointSaver] = None,
             system_prompt: Optional[str] = None
     ):
@@ -99,11 +100,11 @@ class RAGGraph(BaseGraph):
             documents = self.knowledge_base.search(query, k=5)
             # 转换为字典格式
             docs = []
-            for doc in documents:
+            for doc, score in documents:
                 doc_dict = {
-                    "content": doc.content if hasattr(doc, "content") else str(doc),
-                    "metadata": doc.metadata if hasattr(doc, "metadata") else {},
-                    "score": doc.metadata.get("similarity_score", 0.0) if hasattr(doc, "metadata") else 0.0
+                    "content": doc.page_content,
+                    "metadata": doc.metadata,
+                    "score": float(score)
                 }
                 docs.append(doc_dict)
 

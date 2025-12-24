@@ -28,6 +28,8 @@ async def create_knowledge_base(request: KnowledgeBaseRequest):
 async def list_knowledge_bases():
     """列出知识库"""
     from .routes.kb_routes import list_knowledge_bases as list_kb_route
+    results = await list_kb_route()
+    print(results)
     return await list_kb_route()
 
 

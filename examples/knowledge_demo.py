@@ -29,7 +29,8 @@ from src.knowledge.knowledge_models import (
 
 
 def get_documents():
-    loader = DocumentLoaderFactory.create_loader(r"D:\Coding\MyData\大模型技术栈-实战与应用.pdf")
+    loader = DocumentLoaderFactory.create_loader(
+        r"D:\Coding\MyCode\AgentForge\uploads\AncientChineseLiterature\001第一回纣王女娲宫进香.txt")
     docs = loader.load()
     # print(docs)
     return docs
@@ -105,7 +106,11 @@ def get_kb_manager():
     # kbs = kb_manager.list_knowledge_bases()
 
     kb = kb_manager.get_knowledge_base("ai_kownledge")
-    result = kb.search("AI")
+
+    # stats = kb.get_stats()
+    # pprint(stats)
+
+    result = kb.search("人工智能")
     # print(result)
     formatted_results = []
     for doc, score in result:
@@ -128,8 +133,8 @@ def get_kb_manager():
 
 
 if __name__ == '__main__':
-    # get_documents()
+    get_documents()
     # get_embedder()
     # get_vector_store()
-    get_kb_manager()
+    # get_kb_manager()
     # print(SplitterType.RECURSIVE.value)

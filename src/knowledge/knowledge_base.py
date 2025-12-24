@@ -35,6 +35,11 @@ class KnowledgeBase:
         # self.config = config
         self.name = config.name
         self.description = config.description
+        self.vectorstore_type = config.vectorstore_type.value
+        self.embedding_type = config.embedding_type.value
+        self.chunk_size = config.chunk_size
+        self.persist_directory = config.persist_directory
+        self.vectorstore_config = config.vectorstore_config
         # 文档分割器
         self.splitter = SplitterFactory.create_splitter(
             splitter_type=config.splitter_type,
@@ -54,15 +59,14 @@ class KnowledgeBase:
             **config.vectorstore_config
         )
         # 知识库状态
-        self.persist_directory = config.persist_directory
         self.is_initialized = False
         self.document_count = 0
         self.last_updated = None
 
     def load_state(self, state: dict):
-        self.is_initialized = state["is_initialized"]
-        self.document_count = state["document_count"]
-        self.last_updated = state["last_updated"]
+        self.is_initialized = state.get("is_initialized", False)
+        self.document_count = state.get("document_count", 0)
+        self.last_updated = state.get("last_updated")
 
     def add_documents(
             self,
@@ -119,6 +123,7 @@ class KnowledgeBase:
                 logger.info(f"成功处理文件: {file_path}, 生成 {len(split_documents)} 个chunk")
 
             except Exception as e:
+                raise e
                 error_msg = f"处理文件失败 {file_path}: {str(e)}"
                 logger.error(error_msg)
                 failed_files.append({
@@ -159,7 +164,7 @@ class KnowledgeBase:
             query: str,
             k: int = 4,
             filter_dict: Optional[Dict] = None
-    ) -> List[Document]:
+    ) -> List[tuple[Document, float]]:
         """
         搜索知识库
         
@@ -212,14 +217,23 @@ class KnowledgeBase:
             logger.error(f"获取向量库中文档数时异常：{e}")
             count = self.document_count
 
+        print("last_updated ", self.last_updated)
+
+        last_updated = self.last_updated
+        if last_updated and isinstance(self.last_updated, datetime):
+            last_updated = last_updated.strftime("%Y-%m-%d %H:%M:%S")
+        if last_updated and isinstance(self.last_updated, str):
+            last_updated = datetime.fromisoformat(self.last_updated).strftime("%Y-%m-%d %H:%M:%S")
         return {
             "name": self.name,
             "description": self.description,
+            "embedding_type": self.embedding_type,
+            "vectorstore_type": self.vectorstore_type,
+            "chunk_size": self.chunk_size,
+            "vectorstore_info": self.vectorstore_config,
             "document_count": count,
-            "embedding_model": str(self.embedding) if hasattr(self.embedding, "__class__") else "unknown",
-            "vector_store_type": type(self.vector_store).__name__,
             "is_initialized": self.is_initialized,
-            "last_updated": self.last_updated
+            "last_updated": last_updated
         }
 
     def delete_documents(self, ids: List[str]):
