@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-@File    : checkpoint_memory_manager.py
+@File    : memory_manager.py
 @Time    : 2025/12/16
 @Desc    : 基于LangGraph checkpointer的记忆管理器
 """
-from typing import Dict, Any, List, Optional, Sequence, Tuple
+import traceback
+from typing import Dict, Any, List, Optional, Sequence
 from datetime import datetime, timedelta
 from dataclasses import dataclass
-import asyncio
 
-from langgraph.checkpoint.base import BaseCheckpointSaver, Checkpoint
-from langgraph.checkpoint.sqlite import SqliteSaver
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.memory import InMemorySaver
+from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.language_models.chat_models import BaseChatModel
 
@@ -25,7 +25,8 @@ class CheckpointMemoryConfig:
     """基于checkpointer的记忆配置"""
     # 短期记忆配置
     max_message_history: int = 50  # 保留的最近消息数
-    summarization_threshold: int = 30  # 触发总结的消息数阈值
+    # summarization_threshold: int = 30  # 触发总结的消息数阈值
+    summarization_threshold: int = 5  # 触发总结的消息数阈值
 
     # 长期记忆配置
     max_sessions: int = 100  # 最大保存的会话数
@@ -54,10 +55,10 @@ class CheckpointMemoryManager:
     """
 
     def __init__(
-        self,
-        checkpointer: Optional[BaseCheckpointSaver] = None,
-        config: Optional[CheckpointMemoryConfig] = None,
-        llm_client: Optional[BaseChatModel] = None
+            self,
+            checkpointer: Optional[BaseCheckpointSaver] = None,
+            config: Optional[CheckpointMemoryConfig] = None,
+            llm_client: Optional[BaseChatModel] = None
     ):
         """
         初始化基于checkpointer的记忆管理器
@@ -68,15 +69,15 @@ class CheckpointMemoryManager:
             llm_client: LLM客户端（用于语义搜索和总结）
         """
         self.config = config or CheckpointMemoryConfig()
-        self.checkpointer = checkpointer or SqliteSaver.from_conn_string(":memory:")
+        self.checkpointer = checkpointer or InMemorySaver()
         self.llm_client = llm_client
 
         logger.info(f"CheckpointMemoryManager initialized with checkpointer: {type(self.checkpointer).__name__}")
 
     async def load_conversation_history(
-        self,
-        thread_id: Optional[str] = None,
-        max_messages: Optional[int] = None
+            self,
+            thread_id: Optional[str] = None,
+            max_messages: Optional[int] = None
     ) -> List[BaseMessage]:
         """
         加载对话历史
@@ -132,10 +133,10 @@ class CheckpointMemoryManager:
             return []
 
     async def save_conversation_state(
-        self,
-        thread_id: str,
-        messages: List[BaseMessage],
-        metadata: Optional[Dict[str, Any]] = None
+            self,
+            thread_id: str,
+            messages: List[BaseMessage],
+            metadata: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         保存对话状态
@@ -162,10 +163,10 @@ class CheckpointMemoryManager:
             return False
 
     async def search_relevant_memories(
-        self,
-        thread_id: Optional[str],
-        query: str,
-        limit: Optional[int] = None
+            self,
+            thread_id: Optional[str],
+            query: str,
+            limit: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
         搜索相关记忆
@@ -191,7 +192,7 @@ class CheckpointMemoryManager:
             current_messages = await self.load_conversation_history(thread_id)
             if current_messages:
                 relevant_in_current = self._find_relevant_messages(
-                    current_messages, query, limit=min(limit//2, len(current_messages))
+                    current_messages, query, limit=min(limit // 2, len(current_messages))
                 )
                 relevant_memories.extend(relevant_in_current)
 
@@ -211,10 +212,10 @@ class CheckpointMemoryManager:
             return []
 
     def _find_relevant_messages(
-        self,
-        messages: List[BaseMessage],
-        query: str,
-        limit: int = 5
+            self,
+            messages: List[BaseMessage],
+            query: str,
+            limit: int = 5
     ) -> List[Dict[str, Any]]:
         """
         在消息列表中查找相关消息
@@ -255,10 +256,10 @@ class CheckpointMemoryManager:
         return relevant_messages[:limit]
 
     async def _search_other_sessions(
-        self,
-        query: str,
-        current_thread_id: str,
-        limit: int = 3
+            self,
+            query: str,
+            current_thread_id: str,
+            limit: int = 3
     ) -> List[Dict[str, Any]]:
         """
         在其他会话中搜索相关内容
@@ -328,9 +329,9 @@ class CheckpointMemoryManager:
         return len(messages) >= self.config.summarization_threshold
 
     async def summarize_conversation(
-        self,
-        messages: List[BaseMessage],
-        thread_id: str
+            self,
+            messages: List[BaseMessage],
+            thread_id: str
     ) -> Optional[SystemMessage]:
         """
         生成对话总结
@@ -354,10 +355,10 @@ class CheckpointMemoryManager:
 
             summary_prompt = f"""请总结以下对话的主要内容，保留关键信息和决策点。总结应该简洁但包含重要细节：
 
-{conversation_text}
-
-总结（控制在200字以内）：
-"""
+            {conversation_text}
+            
+            总结（控制在200字以内）：
+            """
 
             # 调用LLM生成总结
             from langchain_core.messages import HumanMessage
@@ -373,8 +374,8 @@ class CheckpointMemoryManager:
             return summary_message
 
         except Exception as e:
-            logger.error(f"Failed to generate summary for thread_id {thread_id}: {str(e)}")
-            return None
+            logger.error(f"Failed to generate summary for thread_id {thread_id}: {e} -> {traceback.format_exc()}")
+            return
 
     async def cleanup_old_sessions(self, days: Optional[int] = None) -> int:
         """

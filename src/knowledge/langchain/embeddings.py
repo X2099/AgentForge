@@ -26,5 +26,7 @@ class EmbedderFactory:
             return OpenAIEmbeddings(**kwargs)
         elif embedder_type == EmbedderType.BGE:
             return HuggingFaceEmbeddings(**kwargs)
+        elif embedder_type == EmbedderType.LOCAL:
+            return HuggingFaceEmbeddings(**kwargs)
         else:
             raise ValueError(f"不支持的嵌入器类型: {embedder_type}")

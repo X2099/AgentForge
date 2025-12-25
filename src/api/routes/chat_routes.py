@@ -10,6 +10,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 
 from langchain_core.messages import HumanMessage
+from langgraph.store.sqlite import SqliteStore
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from src.config import SystemConfig
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 CHECKPOINT_DB = (BASE_DIR / "data" / "checkpoint.db").as_posix()
+STORE_DB = (BASE_DIR / "data" / "store.db").as_posix()
 
 # 创建路由器
 router = APIRouter()
@@ -80,46 +82,56 @@ async def chat(request: ChatRequest):
         llm = system_config.create_client(model=request.model)
         # 创建工作流
         async with AsyncSqliteSaver.from_conn_string(CHECKPOINT_DB) as checkpointer:
-            # 使用RAG对话
-            if request.mode == "rag":
-                # 获取知识库
-                kb = knowledge_base_manager.get_knowledge_base(request.knowledge_base_name)
-                graph = create_rag_graph(llm, knowledge_base=kb, checkpointer=checkpointer)
-            else:
-                # 获取选中的工具
-                tool_manager = get_tool_manager()
-                selected_tools = []
-                for tool_name in request.tools:
-                    tool = tool_manager.get_tool(tool_name)
-                    if tool:
-                        selected_tools.append(tool)
-                graph = create_react_graph(llm, tools=selected_tools, checkpointer=checkpointer)
-            # 准备初始状态
-            initial_state = {
-                "messages": [HumanMessage(content=request.query)],
-                "query": request.query
-            }
-            config = {"configurable": {"thread_id": session_id}}
+            with SqliteStore.from_conn_string(STORE_DB) as store:
+                # 使用RAG对话
+                if request.mode == "rag":
+                    # 获取知识库
+                    kb = knowledge_base_manager.get_knowledge_base(request.knowledge_base_name)
+                    graph = create_rag_graph(
+                        llm,
+                        knowledge_base=kb,
+                        checkpointer=checkpointer
+                    )
+                else:
+                    # 获取选中的工具
+                    tool_manager = get_tool_manager()
+                    selected_tools = []
+                    for tool_name in request.tools:
+                        tool = tool_manager.get_tool(tool_name)
+                        if tool:
+                            selected_tools.append(tool)
+                    graph = create_react_graph(
+                        llm,
+                        tools=selected_tools,
+                        checkpointer=checkpointer,
+                        store=store
+                    )
+                # 准备初始状态
+                initial_state = {
+                    "messages": [HumanMessage(content=request.query)],
+                    "query": request.query
+                }
+                config = {"configurable": {"thread_id": session_id}}
 
-            # 执行工作流
-            try:
-                result = await graph.ainvoke(initial_state, config)
-                response_content = result["messages"][-1].content if result["messages"] else ""
-                sources = result.get('sources', [])
+                # 执行工作流
+                try:
+                    result = await graph.ainvoke(initial_state, config)
+                    response_content = result["messages"][-1].content if result["messages"] else ""
+                    sources = result.get('sources', [])
 
-                for m in result['messages']:
-                    m.pretty_print()
+                    for m in result['messages']:
+                        m.pretty_print()
 
-                return ChatResponse(
-                    response=response_content,
-                    conversation_id=session_id,
-                    sources=sources
-                )
+                    return ChatResponse(
+                        response=response_content,
+                        conversation_id=session_id,
+                        sources=sources
+                    )
 
-            except Exception as e:
-                raise e
-                error_msg = f"工作流执行失败: {str(e)}"
-                raise HTTPException(status_code=500, detail=error_msg)
+                except Exception as e:
+                    raise e
+                    error_msg = f"工作流执行失败: {str(e)}"
+                    raise HTTPException(status_code=500, detail=error_msg)
 
     except Exception as e:
         logger.error(f"Error in chat endpoint: {e}")

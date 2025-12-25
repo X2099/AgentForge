@@ -4,14 +4,16 @@
 @Time    : 2025/12/9 10:12
 @Desc    : 基于LangGraph标准的图构建基类
 """
-from typing import Dict, Any, List, Callable, Optional, TYPE_CHECKING
+from typing import Dict, Any, List, Callable, Optional
 from abc import ABC, abstractmethod
+
 from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.store.base import BaseStore
+from langgraph.types import Checkpointer
 
-if TYPE_CHECKING:
-    from ..state.base_state import GraphState, AgentState
+from ..state.base_state import GraphState
 
 import logging
 
@@ -42,9 +44,7 @@ class BaseGraph(ABC):
         self.name = name
         self.description = description
 
-        # 导入状态类型（避免循环导入）
         if state_type is None:
-            from ..state.base_state import GraphState
             state_type = GraphState
 
         # 创建StateGraph实例
@@ -55,6 +55,8 @@ class BaseGraph(ABC):
 
         # Checkpointer支持
         self.checkpointer: Optional[BaseCheckpointSaver] = None
+        # 长期记忆
+        self.store: Optional[BaseStore] = None
 
     @abstractmethod
     def build(self):
@@ -67,7 +69,8 @@ class BaseGraph(ABC):
 
     def compile(
             self,
-            checkpointer: Optional[BaseCheckpointSaver] = None,
+            checkpointer: Optional[Checkpointer] = None,
+            store: Optional[BaseStore] = None,
             interrupt_before: Optional[List[str]] = None,
             interrupt_after: Optional[List[str]] = None
     ) -> CompiledStateGraph:
@@ -76,6 +79,7 @@ class BaseGraph(ABC):
         
         Args:
             checkpointer: 检查点保存器（用于状态持久化）
+            store: 长期记忆保存器
             interrupt_before: 在指定节点之前中断
             interrupt_after: 在指定节点之后中断
             
@@ -100,13 +104,16 @@ class BaseGraph(ABC):
             self.graph.add_conditional_edges(**edge_config)
             logger.debug(f"Added conditional edge: {edge_config.get('source', 'unknown')}")
 
-        # 保存checkpointer
+        # 记忆
         self.checkpointer = checkpointer or self.checkpointer
+        self.store = store or self.store
 
         # 编译参数
         compile_kwargs = {}
         if self.checkpointer:
             compile_kwargs["checkpointer"] = self.checkpointer
+        if self.store:
+            compile_kwargs["store"] = self.store
         if interrupt_before:
             compile_kwargs["interrupt_before"] = interrupt_before
         if interrupt_after:
@@ -163,26 +170,6 @@ class BaseGraph(ABC):
             "path_map": path_map
         })
 
-    def set_entry_point(self, node: str):
-        """
-        设置入口节点（已弃用）
-
-        注意：在LangGraph 1.x中，不再需要显式调用set_entry_point。
-        直接使用add_edge(START, "first_node")即可自动设置入口点。
-
-        Args:
-            node: 入口节点名称
-        """
-        import warnings
-        warnings.warn(
-            "set_entry_point() is deprecated in LangGraph 1.x. "
-            "Entry point is automatically set when using add_edge(START, 'first_node').",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        self.graph.set_entry_point(node)
-        self._entry_point_set = True
-
     def set_finish_point(self, node: str):
         """
         设置结束节点
@@ -204,79 +191,3 @@ class BaseGraph(ABC):
             "edge_count": len(self.edges),
             "has_checkpointer": self.checkpointer is not None
         }
-
-
-class AgentGraph(BaseGraph):
-    """
-    Agent图基类
-    
-    提供标准的Agent工作流模式：
-    - 工具调用循环
-    - 条件路由
-    - 错误处理
-    """
-
-    def __init__(
-            self,
-            name: str,
-            description: str = "",
-            max_iterations: int = 15
-    ):
-        """
-        初始化Agent图
-        
-        Args:
-            name: 图名称
-            description: 图描述
-            max_iterations: 最大迭代次数
-        """
-        from ..state.base_state import AgentState
-        super().__init__(name, description, state_type=AgentState)
-        self.max_iterations = max_iterations
-
-    def should_continue(self, state: "AgentState") -> str:
-        """
-        判断是否继续执行
-        
-        标准的路由函数：
-        - "continue": 继续工具调用循环
-        - "end": 结束执行
-        
-        Args:
-            state: 当前状态
-            
-        Returns:
-            路由键
-        """
-        # 检查迭代次数
-        iteration = state.get("iteration_count", 0)
-        if iteration >= self.max_iterations:
-            logger.warning(f"Max iterations ({self.max_iterations}) reached")
-            return "end"
-
-        # 检查是否应该继续
-        if not state.get("should_continue", True):
-            return "end"
-
-        # 检查是否有待处理的工具调用
-        messages = state.get("messages", [])
-        last_message = messages[-1] if messages else None
-
-        # 如果最后一条消息包含工具调用，继续
-        if last_message and hasattr(last_message, "tool_calls") and last_message.tool_calls:
-            return "continue"
-
-        # 如果有工具调用但还没执行，继续
-        if state.get("tool_calls"):
-            return "continue"
-
-        return "end"
-
-    def build_agent_flow(self):
-        """
-        构建标准的Agent流程
-        
-        流程：START -> agent -> should_continue -> (continue: agent | end: END)
-        """
-        # 这个方法是模板，子类应该重写以添加具体的节点
-        raise NotImplementedError("子类必须实现build_agent_flow方法")

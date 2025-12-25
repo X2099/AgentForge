@@ -63,7 +63,7 @@ class ChineseSemanticSplitter(SemanticChunker):
 class SplitterFactory:
 
     @staticmethod
-    def create_splitter(splitter_type: SplitterType, **kwargs) -> TextSplitter:
+    def create_splitter(splitter_type: SplitterType, **kwargs) -> TextSplitter | BaseDocumentTransformer:
         if splitter_type == SplitterType.RECURSIVE:
             return ChineseRecursiveTextSplitter(**kwargs)
         elif splitter_type == SplitterType.FIXED:

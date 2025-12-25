@@ -2,9 +2,9 @@
 """
 @File    : react.py
 @Time    : 2025/12/9 14:39
-@Desc    : 基于LangGraph标准的ReactAgent
+@Desc    : 基于LangGraph构建的ReactAgent
 """
-from typing import Dict, Any, List, Optional, Annotated
+from typing import Dict, Any, List, Optional
 from langgraph.graph import START, END
 from langchain_core.messages import SystemMessage, AIMessage
 from langchain_core.tools import BaseTool
@@ -12,15 +12,16 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.store.base import BaseStore
 
 from ..core.graphs.base_graph import BaseGraph
 from ..core.state.base_state import GraphState
 from ..core.nodes.tool_nodes import create_tool_executor_node
-from ..memory.checkpoint_memory_manager import CheckpointMemoryManager, CheckpointMemoryConfig
-from ..memory.checkpoint_memory_nodes import (
-    create_checkpoint_memory_loader_node,
-    create_checkpoint_memory_retrieval_node,
-    create_checkpoint_memory_summarization_node
+from ..memory.memory_manager import CheckpointMemoryManager, CheckpointMemoryConfig
+from ..memory.memory_nodes import (
+    create_memory_trim_node,
+    create_memory_retrieval_node,
+    create_memory_summary_node
 )
 
 
@@ -28,13 +29,12 @@ class ReactGraphState(GraphState):
     """对话状态"""
     query: Optional[str]
     context: Optional[str]
+    messages_summary: Optional[str]  # 记忆摘要
 
 
 class ReactGraph(BaseGraph):
     """
-    对话工作流
-    
-    标准的对话流程：检索 -> LLM生成 -> 响应
+    ReAct Agent工作流
     """
 
     def __init__(
@@ -54,8 +54,8 @@ class ReactGraph(BaseGraph):
             checkpointer: LangGraph检查点保存器
         """
         super().__init__(
-            name="conversation_workflow",
-            description="标准对话工作流",
+            name="langgraph_react_agent",
+            description="基于LangGraph构建的ReAct Agent",
             state_type=ReactGraphState
         )
 
@@ -71,8 +71,6 @@ class ReactGraph(BaseGraph):
             config=self.memory_config,
             llm_client=llm
         )
-        self.enable_memory = True
-        self.max_message_history = 100
 
     @staticmethod
     def _build_default_system_prompt() -> str:
@@ -84,6 +82,7 @@ class ReactGraph(BaseGraph):
 
     def build(self):
         """构建对话工作流"""
+
         # 添加核心节点
         self.add_node("generate", self._generate_node)
 
@@ -91,24 +90,21 @@ class ReactGraph(BaseGraph):
             # 工具执行节点，执行LLM返回的tool_calls
             self.add_node("tools", create_tool_executor_node(self.tools))
 
-        # 如果启用记忆，添加记忆节点
-        if self.enable_memory:
-            memory_loader = create_checkpoint_memory_loader_node(self.memory_manager)
-            memory_retrieval = create_checkpoint_memory_retrieval_node(self.memory_manager)
-            memory_summarization = create_checkpoint_memory_summarization_node(self.memory_manager)
+        # 添加记忆节点
+        memory_summary = create_memory_summary_node(self.memory_manager)
+        memory_trim = create_memory_trim_node(self.memory_manager)
+        memory_retrieval = create_memory_retrieval_node(self.memory_manager)
 
-            self.add_node("memory_loader", memory_loader)
-            self.add_node("memory_retrieval", memory_retrieval)
-            self.add_node("memory_summarization", memory_summarization)
+        self.add_node("memory_summary", memory_summary)
+        # self.add_node("memory_trim", memory_trim)
+        # self.add_node("memory_retrieval", memory_retrieval)
 
-        # 如果启用记忆，先加载历史记忆
-        if self.enable_memory:
-            self.add_edge(START, "memory_loader")
-            self.add_edge("memory_loader", "memory_retrieval")
-            current_start = "memory_retrieval"
-
-        # 从最后一个准备节点连接到生成节点
-        self.add_edge(START, "generate")
+        # 设置边
+        self.add_edge(START, "memory_summary")
+        # self.add_edge("memory_summary", "memory_trim")
+        # self.add_edge("memory_trim", "memory_retrieval")
+        # self.add_edge("memory_retrieval", "generate")
+        self.add_edge("memory_summary", "generate")
 
         # 生成后的路由：如有工具调用，先执行工具再回到生成；否则结束
         if self.tools:
@@ -117,7 +113,7 @@ class ReactGraph(BaseGraph):
                 path=self._should_use_tools,
                 path_map={
                     "tools": "tools",
-                    "end": END
+                    END: END
                 }
             )
             # 工具执行后，把工具结果写回messages，再让LLM继续
@@ -126,51 +122,17 @@ class ReactGraph(BaseGraph):
         else:
             self.add_edge("generate", END)
 
-    def _truncate_messages_node(self, state: ReactGraphState) -> Dict[str, Any]:
-        """
-        消息截断节点
-
-        管理短期记忆，确保消息数量在合理范围内。
-        LangGraph的checkpointer会自动处理长期记忆。
-        """
-        messages = state.get("messages", [])
-
-        if not messages:
-            return {}
-
-        if len(messages) <= self.max_message_history:
-            return {}
-
-        # 保留系统消息和最近的消息
-        system_messages = []
-        other_messages = []
-
-        for msg in messages:
-            if hasattr(msg, "type") and msg.type == "system":
-                system_messages.append(msg)
-            else:
-                other_messages.append(msg)
-
-        # 保留最近的消息
-        keep_count = self.max_message_history - len(system_messages)
-        if keep_count > 0:
-            recent_messages = other_messages[-keep_count:]
-        else:
-            recent_messages = []
-
-        new_messages = system_messages + recent_messages
-
-        return {"messages": new_messages}
-
     async def _generate_node(self, state: ReactGraphState) -> Dict[str, Any]:
         """LLM生成节点"""
         # 准备消息
         system_prompt = self.system_prompt
 
         # 添加知识库上下文
-        if state.get("context"):
-            system_prompt += f"\n\n## 当前查询的相关知识库检索结果：\n{state['context']}" \
-                             f"\n\n请基于以上检索结果来回答用户的问题。如果检索结果不足以回答问题，请说明情况。"
+        if state.get("messages_summary"):
+            system_prompt += f"\n\n## 这是当前对话的历史摘要，帮助你理解之前的讨论：：\n{state['messages_summary']}"
+
+        print("messages_summary ==> ", state.get("messages_summary"))
+        print("messages length ==> ", len(state.get("messages")))
 
         input_messages = [SystemMessage(content=system_prompt)] + state.get("messages", [])
 
@@ -200,21 +162,22 @@ class ReactGraph(BaseGraph):
         """
         messages = state["messages"]
         if not messages:
-            return "end"
+            return END
         last_msg = messages[-1]
         if isinstance(last_msg, AIMessage) and getattr(last_msg, "tool_calls", None):
             tool_calls = last_msg.tool_calls
             if tool_calls:
                 return "tools"
 
-        return "end"
+        return END
 
 
 def create_react_graph(
         llm: BaseChatModel,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
-        checkpointer: Optional[BaseCheckpointSaver] = None
+        checkpointer: Optional[BaseCheckpointSaver] = None,
+        store: Optional[BaseStore] = None
 ) -> CompiledStateGraph:
     """
     创建对话智能体
@@ -224,6 +187,7 @@ def create_react_graph(
         tools: 工具列表
         system_prompt: 系统提示词
         checkpointer: LangGraph检查点保存器，用于实现记忆功能
+        store: LangGraph长期记忆保存器
 
     Returns:
         编译后的工作流图
@@ -235,5 +199,5 @@ def create_react_graph(
         checkpointer=checkpointer
     )
 
-    # 编译时传入checkpointer
-    return graph.compile(checkpointer=checkpointer)
+    # 编译时传入checkpointer, store
+    return graph.compile(checkpointer=checkpointer, store=store)

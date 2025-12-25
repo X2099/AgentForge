@@ -1,57 +1,117 @@
 # -*- coding: utf-8 -*-
 """
-@File    : checkpoint_memory_nodes.py
+@File    : memory_nodes.py
 @Time    : 2025/12/16
 @Desc    : 基于LangGraph checkpointer的记忆节点
 """
-from typing import Dict, Any, List, Optional, Sequence, Annotated, Tuple
-from datetime import datetime
+import traceback
+from typing import Dict, Any
+from langchain_core.messages import HumanMessage, RemoveMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
+from langgraph.store.base import BaseStore
 
-from langgraph.graph.message import add_messages
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
-
-from ..core.state.base_state import AgentState
-from .checkpoint_memory_manager import CheckpointMemoryManager
+from ..core.state.base_state import GraphState
+from .memory_manager import CheckpointMemoryManager
 
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-def create_checkpoint_memory_loader_node(
-    memory_manager: CheckpointMemoryManager
+def create_memory_summary_node(
+        memory_manager: CheckpointMemoryManager
 ):
     """
-    创建基于checkpointer的记忆加载节点
-
-    这个节点在对话开始时加载之前的对话历史
-
-    Args:
-        memory_manager: 记忆管理器
-
-    Returns:
-        节点函数
+    创建基记忆总结节点
     """
-    async def checkpoint_memory_loader_node(state: AgentState) -> Dict[str, Any]:
-        """
-        记忆加载节点
 
-        从checkpointer中加载对话历史并合并到当前状态
-        注意：这个节点直接使用checkpointer，不需要从state中获取thread_id
+    async def memory_summary_node(state: GraphState, config: RunnableConfig, store: BaseStore) -> Dict[str, Any]:
         """
+        记忆总结节点
+        检查是否需要总结，如果需要则生成总结并压缩消息历史
+        """
+        print(f"memory_summary_node()...{store}")
+        messages = state.get("messages", [])
         try:
-            # 获取最新的检查点（自动使用当前工作流的thread_id）
-            # 注意：checkpointer.aget(None) 会获取当前配置的最新检查点
+            thread_id = config["configurable"]["thread_id"]
+            namespace = ("user_id", "memories")
+            memories = store.get(namespace, thread_id)
+            # 获取上一次的记忆摘要
+            last_summary = ""
+            if memories:
+                last_summary = memories.value.get("messages_summary", "")
+            if not memory_manager.should_summarize(messages):
+                return {
+                    "messages_summary": last_summary
+                }
+
+            # 提取需要总结的消息（保留最近的一些消息）
+            # keep_recent = 10
+            keep_recent = 5
+            messages_to_summarize = messages[:-keep_recent] if len(messages) > keep_recent else []
+            messages_to_keep = messages[-keep_recent:] if len(messages) >= keep_recent else messages
+
+            if not messages_to_summarize:
+                return {
+                    "messages_summary": last_summary
+                }
+
+            # 合并总结和保留的消息
+            if last_summary:
+                last_summary_message = SystemMessage(content=last_summary)
+                messages_to_summarize = [last_summary_message] + messages_to_summarize
+            # 生成新的摘要
+            new_summary_message = await memory_manager.summarize_conversation(
+                messages_to_summarize,
+                config["configurable"]["thread_id"]
+            )
+
+            if new_summary_message:
+                new_summary = new_summary_message.content
+                store.put(namespace, thread_id, {"messages_summary": new_summary})
+                logger.info(
+                    f"对话总结完成: 原始消息 {len(messages_to_summarize)} -> 总结消息 1 + 保留消息 {len(messages_to_keep)}")
+                return {
+                    "messages": [RemoveMessage(id=m.id) for m in messages_to_summarize],  # 移除被总结过的消息列表
+                    "messages_summary": new_summary
+                }
+            else:
+                # 如果总结失败，使用简单的截断
+                logger.warning("总结记忆生成失败")
+                return {
+                    "messages_summary": last_summary
+                }
+
+        except Exception as e:
+            logger.error(f"记忆总结失败: {e} -> {traceback.format_exc()}")
+            # 出错时保留所有消息
+            return {
+                "error": str(e)
+            }
+
+    return memory_summary_node
+
+
+def create_memory_trim_node(
+        memory_manager: CheckpointMemoryManager
+):
+    """
+    创建记忆裁剪节点
+    """
+
+    async def memory_trim_node(state: GraphState, config: RunnableConfig) -> Dict[str, Any]:
+        print("memory_trim_node()...")
+        try:
             try:
-                checkpoint_tuple = await memory_manager.checkpointer.aget(None)
+                checkpoint_tuple = await memory_manager.checkpointer.aget(config)
                 if not checkpoint_tuple:
-                    return {"memory_context": ""}
+                    return {}
 
                 checkpoint, metadata = checkpoint_tuple
                 historical_messages = checkpoint.get("messages", [])
-            except Exception:
-                # 如果获取失败，返回空结果
-                return {"memory_context": ""}
+            except Exception as e:
+                logger.error(f"获取最新的检查点异常：{e} -> {traceback.format_exc()}")
+                return {"error": str(e)}
 
             # 只保留最近的消息
             max_messages = memory_manager.config.max_message_history
@@ -66,7 +126,7 @@ def create_checkpoint_memory_loader_node(
             if historical_messages and current_messages:
                 # 检查最后一个历史消息和第一个当前消息是否重复
                 if (len(historical_messages) > 0 and len(current_messages) > 0 and
-                    str(historical_messages[-1]) == str(current_messages[0])):
+                        str(historical_messages[-1]) == str(current_messages[0])):
                     # 如果重复，只保留历史消息
                     all_messages = historical_messages
                 else:
@@ -76,26 +136,20 @@ def create_checkpoint_memory_loader_node(
             else:
                 all_messages = current_messages
 
-            logger.debug(f"Loaded {len(historical_messages)} historical messages, total: {len(all_messages)}")
-
             return {
                 "messages": all_messages,
-                "memory_loaded": True,
                 "historical_message_count": len(historical_messages)
             }
 
         except Exception as e:
-            logger.error(f"记忆加载失败: {str(e)}")
-            return {
-                "memory_loaded": False,
-                "error": str(e)
-            }
+            logger.error(f"记忆加载失败: {e} -> {traceback.format_exc()}")
+            return {"error": str(e)}
 
-    return checkpoint_memory_loader_node
+    return memory_trim_node
 
 
-def create_checkpoint_memory_retrieval_node(
-    memory_manager: CheckpointMemoryManager
+def create_memory_retrieval_node(
+        memory_manager: CheckpointMemoryManager
 ):
     """
     创建基于checkpointer的记忆检索节点
@@ -108,17 +162,19 @@ def create_checkpoint_memory_retrieval_node(
     Returns:
         节点函数
     """
-    async def checkpoint_memory_retrieval_node(state: AgentState) -> Dict[str, Any]:
+
+    async def memory_retrieval_node(state: GraphState, config: RunnableConfig, store: BaseStore) -> Dict[str, Any]:
         """
         记忆检索节点
 
         检索与当前查询相关的历史记忆
         """
+        print("memory_retrieval_node()...")
         try:
             messages = state.get("messages", [])
 
             if not messages:
-                return {"memory_context": ""}
+                return {"messages": messages}
 
             # 获取当前查询（最后一条用户消息）
             last_user_msg = None
@@ -189,83 +245,11 @@ def create_checkpoint_memory_retrieval_node(
                 "error": str(e)
             }
 
-    return checkpoint_memory_retrieval_node
+    return memory_retrieval_node
 
 
-def create_checkpoint_memory_summarization_node(
-    memory_manager: CheckpointMemoryManager
-):
-    """
-    创建基于checkpointer的记忆总结节点
-
-    当对话过长时自动生成总结
-
-    Args:
-        memory_manager: 记忆管理器
-
-    Returns:
-        节点函数
-    """
-    async def checkpoint_memory_summarization_node(state: AgentState) -> Dict[str, Any]:
-        """
-        记忆总结节点
-
-        检查是否需要总结，如果需要则生成总结并压缩消息历史
-        """
-        try:
-            messages = state.get("messages", [])
-
-            if not memory_manager.should_summarize(messages):
-                return {"summarized": False}
-
-            # 提取需要总结的消息（保留最近的一些消息）
-            keep_recent = 10
-            messages_to_summarize = messages[:-keep_recent] if len(messages) > keep_recent else []
-            messages_to_keep = messages[-keep_recent:] if len(messages) >= keep_recent else messages
-
-            if not messages_to_summarize:
-                return {"summarized": False}
-
-            # 生成总结
-            summary_message = await memory_manager.summarize_conversation(
-                messages_to_summarize,
-                thread_id
-            )
-
-            if summary_message:
-                # 合并总结和保留的消息
-                new_messages = [summary_message] + messages_to_keep
-
-                logger.info(f"对话总结完成: 原始消息 {len(messages_to_summarize)} -> 总结消息 1 + 保留消息 {len(messages_to_keep)}")
-
-                return {
-                    "messages": new_messages,
-                    "summarized": True,
-                    "original_message_count": len(messages_to_summarize),
-                    "summary_length": len(summary_message.content)
-                }
-            else:
-                # 如果总结失败，使用简单的截断
-                logger.warning("总结生成失败，使用消息截断")
-                return {
-                    "messages": messages_to_keep,
-                    "summarized": False,
-                    "truncated": True
-                }
-
-        except Exception as e:
-            logger.error(f"记忆总结失败: {str(e)}")
-            # 出错时保留所有消息
-            return {
-                "summarized": False,
-                "error": str(e)
-            }
-
-    return checkpoint_memory_summarization_node
-
-
-def create_checkpoint_memory_cleanup_node(
-    memory_manager: CheckpointMemoryManager
+def create_memory_cleanup_node(
+        memory_manager: CheckpointMemoryManager
 ):
     """
     创建记忆清理节点
@@ -278,7 +262,8 @@ def create_checkpoint_memory_cleanup_node(
     Returns:
         节点函数
     """
-    async def checkpoint_memory_cleanup_node(state: AgentState) -> Dict[str, Any]:
+
+    async def memory_cleanup_node(state: GraphState) -> Dict[str, Any]:
         """
         记忆清理节点
 
@@ -300,11 +285,11 @@ def create_checkpoint_memory_cleanup_node(
                 "error": str(e)
             }
 
-    return checkpoint_memory_cleanup_node
+    return memory_cleanup_node
 
 
-def create_checkpoint_memory_stats_node(
-    memory_manager: CheckpointMemoryManager
+def create_memory_stats_node(
+        memory_manager: CheckpointMemoryManager
 ):
     """
     创建记忆统计节点
@@ -317,7 +302,8 @@ def create_checkpoint_memory_stats_node(
     Returns:
         节点函数
     """
-    def checkpoint_memory_stats_node(state: AgentState) -> Dict[str, Any]:
+
+    def memory_stats_node(state: GraphState) -> Dict[str, Any]:
         """
         记忆统计节点
 
@@ -345,4 +331,4 @@ def create_checkpoint_memory_stats_node(
                 "stats_generated": False
             }
 
-    return checkpoint_memory_stats_node
+    return memory_stats_node

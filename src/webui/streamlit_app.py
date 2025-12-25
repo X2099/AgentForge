@@ -209,7 +209,6 @@ class APIManager:
         """加载知识库列表"""
         try:
             kbs_data = await list_knowledge_bases()
-            st.info(kbs_data)
             SessionManager.update_knowledge_bases(kbs_data.get("knowledge_bases", []))
             return True
         except Exception as e:
