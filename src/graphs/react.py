@@ -4,6 +4,7 @@
 @Time    : 2025/12/9 14:39
 @Desc    : 基于LangGraph构建的ReactAgent
 """
+import traceback
 from typing import Dict, Any, List, Optional
 from langgraph.graph import START, END
 from langchain_core.messages import SystemMessage, AIMessage
@@ -149,7 +150,8 @@ class ReactGraph(BaseGraph):
             }
 
         except Exception as e:
-            error_content = f"抱歉，生成响应时出错：{str(e)}"
+            traceback.format_exc()
+            error_content = f"抱歉，生成响应时出错：{e}"
             return {
                 "messages": [AIMessage(content=error_content)],
                 "response": error_content,

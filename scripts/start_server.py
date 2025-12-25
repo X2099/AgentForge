@@ -107,9 +107,9 @@ def start_mcp_server(host="127.0.0.1", port=8000):
         # 导入MCP相关模块
         from src.tools.config.mcp_config import MCPToolConfig
         from src.tools.mcp_registry import MCPToolRegistry
-        from src.tools.builtin_tools.calculator import CalculatorTool
-        from src.tools.builtin_tools.web_search import WebSearchTool
-        from src.tools.builtin_tools.knowledge_base import KnowledgeBaseTool
+        from src.tools.local_tools.calculator import CalculatorTool
+        from src.tools.local_tools.web_search import WebSearchTool
+        from src.tools.local_tools.knowledge_base import KnowledgeBaseTool
         from src.tools.transports import TransportType
 
         async def run_server():

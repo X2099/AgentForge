@@ -12,8 +12,8 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from src.tools.config.mcp_config import MCPToolConfig
 from src.tools.mcp_registry import MCPToolRegistry
-from src.tools.builtin_tools.calculator import CalculatorTool
-from src.tools.builtin_tools.web_search import WebSearchTool
+from src.tools.local_tools.calculator import CalculatorTool
+from src.tools.local_tools.web_search import WebSearchTool
 from src.tools.transports import TransportType
 
 

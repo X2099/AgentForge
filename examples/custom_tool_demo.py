@@ -14,7 +14,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from src.config.system_config import SystemConfig
-from src.tools.builtin_tools.calculator import calculator_tool
+from src.tools.local_tools.calculator import calculator_tool
 
 
 async def main():

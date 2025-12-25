@@ -50,6 +50,7 @@
 ## 🏗️ 系统架构
 
 ![Agent问答](./assets/langgraph_react_agent.png)
+![RAG问答](./assets/langgraph_rag_workflow.png)
 
 ### **架构特点**
 

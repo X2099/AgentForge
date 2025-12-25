@@ -10,13 +10,13 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 
 from langchain_core.messages import HumanMessage
+from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.store.sqlite import SqliteStore
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from src.config import SystemConfig
 from src.core.agents.agent_manager import AgentManager
 from src.knowledge.knowledge_manager import KnowledgeBaseManager
-from src.tools.tool_manager import get_tool_manager
 from src.graphs import create_react_graph, create_rag_graph
 from ..models import ChatRequest, ChatResponse
 
@@ -32,7 +32,7 @@ router = APIRouter()
 # 全局组件（将在应用启动时初始化）
 knowledge_base_manager: Optional[KnowledgeBaseManager] = None
 system_config: Optional[SystemConfig] = None
-mcp_client = None
+mcp_client: Optional[MultiServerMCPClient] = None
 agent_manager: Optional[AgentManager] = None
 
 
@@ -94,10 +94,11 @@ async def chat(request: ChatRequest):
                     )
                 else:
                     # 获取选中的工具
-                    tool_manager = get_tool_manager()
+                    tools = await mcp_client.get_tools()
+                    tools_map = {tool.name: tool for tool in tools}
                     selected_tools = []
                     for tool_name in request.tools:
-                        tool = tool_manager.get_tool(tool_name)
+                        tool = tools_map.get(tool_name)
                         if tool:
                             selected_tools.append(tool)
                     graph = create_react_graph(

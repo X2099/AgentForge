@@ -2,9 +2,12 @@
 """
 FastAPI应用主入口
 """
+import os
+
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from .routes import (
     system_router, init_system_dependencies,
@@ -16,8 +19,6 @@ from .routes import (
 )
 from ..knowledge.knowledge_manager import KnowledgeBaseManager
 from ..config.system_config import SystemConfig
-from ..tools.transports import TransportType
-from ..tools.mcp_client import MCPClient
 from ..core.agents.agent_manager import AgentManager
 
 
@@ -53,11 +54,14 @@ def _init_dependencies(app: FastAPI):
     # 创建全局组件
     knowledge_base_manager = KnowledgeBaseManager()
     system_config = SystemConfig()
-    # mcp_client = MCPClient(
-    #     transport_type=TransportType.HTTP,
-    #     transport_config={"url": "http://localhost:8000/mcp"}
-    # )
-    mcp_client = None
+    mcp_client = MultiServerMCPClient(
+        {
+            "AmapMcpServers": {
+                "transport": "http",
+                "url": f"https://mcp.amap.com/mcp?key={os.environ['AMAP_MCP_KEY']}",
+            }
+        }
+    )
     agent_manager = AgentManager()  # 创建智能体管理器
 
     # 初始化路由依赖
