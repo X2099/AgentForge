@@ -34,7 +34,6 @@ class DocumentLoaderFactory:
         Raises:
             ValueError: 不支持的文件格式
         """
-        kwargs.update(encoding="utf-8")
         # 检查URL
         if file_path.startswith(('http://', 'https://')):
             return UnstructuredURLLoader([file_path])
@@ -71,7 +70,8 @@ class DocumentLoaderFactory:
             # 特殊处理：.doc文件需要提醒用户
             if ext == '.doc':
                 print("警告：.doc格式（Word 97-2003）支持有限，建议转换为.docx格式")
-
+            if loader_class == TextLoader:
+                kwargs.update(encoding="utf-8")
             return loader_class(file_path, **kwargs)
 
         # 尝试文本文件（无扩展名或未知扩展名）

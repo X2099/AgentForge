@@ -19,6 +19,7 @@ from src.config import SystemConfig
 from src.core.agents.agent_manager import AgentManager
 from src.knowledge.knowledge_manager import KnowledgeBaseManager
 from src.graphs import create_react_graph, create_rag_graph
+from src.agents.agent import create_langchain_agent
 from ..models import ChatRequest, ChatResponse
 
 logger = logging.getLogger(__name__)
@@ -103,8 +104,14 @@ async def chat(request: ChatRequest):
                         tool = tools_map.get(tool_name)
                         if tool:
                             selected_tools.append(tool)
-                    graph = create_react_graph(
-                        llm,
+                    # graph = create_react_graph(
+                    #     llm,
+                    #     tools=selected_tools,
+                    #     checkpointer=checkpointer,
+                    #     store=store
+                    # )
+                    graph = create_langchain_agent(
+                        model=llm,
                         tools=selected_tools,
                         checkpointer=checkpointer,
                         store=store
