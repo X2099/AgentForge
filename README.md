@@ -86,7 +86,6 @@ AgentForge/
 ├── src/
 │   ├── api/                 # FastAPI 应用与路由
 │   │   ├── main.py          # 应用入口
-│   │   ├── api_compat.py    # 兼容启动 (start_server 使用)
 │   │   ├── models.py        # Pydantic 模型 (ChatRequest 等)
 │   │   └── routes/          # 业务路由 (chat/kb/tool/user/system/auth)
 │   ├── config/              # SystemConfig 与配置读取
@@ -165,6 +164,9 @@ python scripts/start_server.py --mode webui --port 8501
 
 #### 5. 访问应用
 - **Web 界面**: http://localhost:8501
+
+![Agent Web 界面](./assets/webui.png)
+
 - **API 文档**: http://localhost:7861/docs
 
 ---

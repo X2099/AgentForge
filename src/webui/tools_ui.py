@@ -6,14 +6,15 @@
 """
 import asyncio
 import streamlit as st
-from src.api.api_compat import list_tools, call_tool
+import requests
+from . import API_BASE_URL
 
 
 async def load_tools():
     """加载工具列表"""
     try:
-        tools_data = await list_tools()
-        st.session_state.available_tools = tools_data.get("mcp", [])
+        tools_data = requests.get(f"{API_BASE_URL}/tools/list", timeout=5).json()
+        st.session_state.available_tools = tools_data.get("tools", [])
         return True
     except Exception as e:
         st.error(f"加载工具列表失败: {str(e)}")
@@ -47,7 +48,7 @@ def render_tool_tester(tool):
         return render_calculator_tester()
     elif tool_name == "web_search":
         return render_web_search_tester()
-    elif tool_name == "knowledge_base":
+    elif tool_name == "knowledge_search":
         return render_knowledge_base_tester()
     else:
         return render_generic_tester(tool)
@@ -73,20 +74,11 @@ def render_calculator_tester():
 
             with st.spinner("计算中..."):
                 try:
-                    result = asyncio.run(call_tool(
-                        tool_name="calculator",
-                        arguments={"expression": expression}
-                    ))
-                    st.success(f"✅ 结果: **{result['result']}**")
-
-                    # 显示计算历史
-                    if 'calc_history' not in st.session_state:
-                        st.session_state.calc_history = []
-                    st.session_state.calc_history.append({
-                        'expression': expression,
-                        'result': result['result']
-                    })
-
+                    payload = {"expression": expression}
+                    result = requests.post(f"{API_BASE_URL}/tools/call?tool_name=calculator",
+                                           json=payload,
+                                           timeout=5).json()
+                    st.success(f'✅ 结果: **{result["result"][0]["text"]}**')
                 except Exception as e:
                     st.error(f"❌ 计算失败: {str(e)}")
 
@@ -119,36 +111,17 @@ def render_web_search_tester():
 
         with st.spinner("搜索中..."):
             try:
-                result = asyncio.run(call_tool(
-                    tool_name="web_search",
-                    arguments={
-                        "query": query,
-                        "max_results": max_results
-                    }
-                ))
+                payload = {
+                    "query": query,
+                    "max_results": max_results
+                }
+                result = requests.post(f"{API_BASE_URL}/tools/call?tool_name=web_search", json=payload,
+                                       timeout=30).json()
 
                 st.success("✅ 搜索完成")
 
                 # 显示搜索结果
-                search_results = result.get("result", [])
-                if isinstance(search_results, list):
-                    for i, item in enumerate(search_results, 1):
-                        with st.container():
-                            if isinstance(item, dict):
-                                title = item.get('title', f'结果 {i}')
-                                url = item.get('url', '')
-                                snippet = item.get('snippet', '')
-
-                                st.markdown(f"**{i}. {title}**")
-                                if url:
-                                    st.caption(f"🔗 {url}")
-                                if snippet:
-                                    st.write(snippet[:200] + "..." if len(snippet) > 200 else snippet)
-                            else:
-                                st.write(f"**{i}.** {str(item)}")
-                            st.divider()
-                else:
-                    st.write(result["result"])
+                st.write(result["result"][0]["text"])
 
             except Exception as e:
                 st.error(f"❌ 搜索失败: {str(e)}")

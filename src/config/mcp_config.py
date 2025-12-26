@@ -7,10 +7,10 @@
 import os
 
 mcp_servers_config = {
-    "AmapMcpServers": {
-        "transport": "http",
-        "url": f"https://mcp.amap.com/mcp?key={os.environ['AMAP_MCP_KEY']}",
-    },
+    # "AmapMcpServers": {
+    #     "transport": "http",
+    #     "url": f"https://mcp.amap.com/mcp?key={os.environ['AMAP_MCP_KEY']}",
+    # },
     "LocalMcpServerStdio": {
         "transport": "stdio",
         "command": "python",

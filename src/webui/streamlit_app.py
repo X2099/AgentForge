@@ -14,7 +14,6 @@ import streamlit as st
 # 添加项目路径
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from src.api.api_compat import list_knowledge_bases, list_tools
 from src.webui.knowledge_base_ui import main as kb_main
 from src.webui.chat_ui import main as chat_main
 from src.webui.tools_ui import main as tools_main
@@ -208,7 +207,7 @@ class APIManager:
     async def load_knowledge_bases() -> bool:
         """加载知识库列表"""
         try:
-            kbs_data = await list_knowledge_bases()
+            kbs_data = requests.get(f"{API_BASE_URL}/knowledge_base/list", timeout=5).json()
             SessionManager.update_knowledge_bases(kbs_data.get("knowledge_bases", []))
             return True
         except Exception as e:
@@ -220,8 +219,8 @@ class APIManager:
     async def load_tools() -> bool:
         """加载工具列表"""
         try:
-            tools_data = await list_tools()
-            SessionManager.update_tools(tools_data.get("mcp", []))
+            tools_data = requests.get(f"{API_BASE_URL}/tools/list", timeout=5).json()
+            SessionManager.update_tools(tools_data.get("tools", []))
             return True
         except Exception as e:
             st.error(f"加载工具失败: {str(e)}")
@@ -234,7 +233,6 @@ class APIManager:
         try:
             # 调用模型列表端点
             response = requests.get(f"{API_BASE_URL}/models/list", timeout=5)
-
             if response.status_code == 200:
                 models_data = response.json()
                 SessionManager.update_models(models_data.get("models", []))
@@ -255,7 +253,6 @@ class APIManager:
         try:
             # 调用专门的健康检查端点
             response = requests.get(f"{API_BASE_URL}/health", timeout=5)
-
             if response.status_code == 200:
                 try:
                     health_data = response.json()
@@ -432,7 +429,6 @@ class UIManager:
     def authenticate_user(username: str, password: str) -> tuple:
         """用户认证（调用API）"""
         try:
-            import requests
             response = requests.post(f"{API_BASE_URL}/auth/login", json={
                 "username": username,
                 "password": password
@@ -460,7 +456,6 @@ class UIManager:
     def register_user(username: str, password: str, email: str, display_name: str) -> tuple:
         """用户注册（调用API）"""
         try:
-            import requests
             response = requests.post(f"{API_BASE_URL}/auth/register", json={
                 "username": username,
                 "password": password,
@@ -486,7 +481,7 @@ class UIManager:
         except Exception as e:
             print(f"注册API调用失败: {str(e)}")
             st.error(f"注册失败: {str(e)}")
-            return False
+            return False, None
 
     @staticmethod
     def render_welcome_page():

@@ -26,7 +26,7 @@ async def list_tools():
     try:
         tools = []
         if mcp_client:
-            remote = await mcp_client.get_tools()
+            mcp_tools = await mcp_client.get_tools()
             tools = [
                 {
                     "name": tool.name,
@@ -34,10 +34,10 @@ async def list_tools():
                     "args_schema": tool.input_schema.schema(),
                     "source": "mcp"
                 }
-                for tool in remote
+                for tool in mcp_tools
             ]
 
-        return {"mcp": tools}
+        return {"tools": tools}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -48,8 +48,12 @@ async def call_tool(tool_name: str, arguments: Dict[str, Any]):
     try:
         if not mcp_client:
             raise HTTPException(status_code=500, detail="MCP客户端未初始化")
-
-        result = await mcp_client.call_tool_simple(tool_name, arguments)
+        tools = await mcp_client.get_tools()
+        tools_map = {tool.name: tool for tool in tools}
+        tool = tools_map.get(tool_name)
+        if not tool:
+            raise HTTPException(status_code=400, detail=f"没找到工具 {tool_name}")
+        result = await tool.ainvoke(arguments)
         return {"result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
