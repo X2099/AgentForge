@@ -70,7 +70,7 @@ class LLMNode(Node):
                 "max_tokens": state.get("max_tokens", self.max_tokens),
             }
             if tools:
-                invoke_kwargs["tools"] = tools
+                invoke_kwargs["mcp"] = tools
             if state.get("tool_choice"):
                 invoke_kwargs["tool_choice"] = state["tool_choice"]
 

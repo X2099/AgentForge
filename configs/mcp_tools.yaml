@@ -1,7 +1,7 @@
 mcp:
   protocol_version: "2024-11-05"
   server_info:
-    name: "ai-agent-tools"
+    name: "ai-agent-mcp"
     version: "1.0.0"
     description: "AI Agent工具集"
 

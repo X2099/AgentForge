@@ -10,8 +10,8 @@ import os
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from src.tools.mcp_client import MCPClient
-from src.tools.transports import TransportType
+from src.mcp.mcp_client import MCPClient
+from src.mcp.transports import TransportType
 
 
 async def main():

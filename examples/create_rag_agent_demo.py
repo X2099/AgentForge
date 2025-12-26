@@ -18,7 +18,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from src.config import SystemConfig
 from src.graphs.rag import create_rag_agent
-from src.tools.tool_manager import get_tool_manager
+from src.mcp.tool_manager import get_tool_manager
 from src.api.api_compat import list_knowledge_bases
 
 

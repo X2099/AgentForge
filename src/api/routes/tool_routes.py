@@ -37,7 +37,7 @@ async def list_tools():
                 for tool in remote
             ]
 
-        return {"tools": tools}
+        return {"mcp": tools}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

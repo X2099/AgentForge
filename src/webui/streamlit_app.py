@@ -221,7 +221,7 @@ class APIManager:
         """加载工具列表"""
         try:
             tools_data = await list_tools()
-            SessionManager.update_tools(tools_data.get("tools", []))
+            SessionManager.update_tools(tools_data.get("mcp", []))
             return True
         except Exception as e:
             st.error(f"加载工具失败: {str(e)}")

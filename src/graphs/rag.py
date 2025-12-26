@@ -217,7 +217,7 @@ def create_rag_graph(
     
     Args:
         llm: LLM客户端
-        tools: 工具列表
+        mcp: 工具列表
         knowledge_base: 知识库
         system_prompt: 系统提示词
         checkpointer: LangGraph检查点保存器，用于实现记忆功能

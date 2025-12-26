@@ -13,7 +13,7 @@ async def load_tools():
     """加载工具列表"""
     try:
         tools_data = await list_tools()
-        st.session_state.available_tools = tools_data.get("tools", [])
+        st.session_state.available_tools = tools_data.get("mcp", [])
         return True
     except Exception as e:
         st.error(f"加载工具列表失败: {str(e)}")

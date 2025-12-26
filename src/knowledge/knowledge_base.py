@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-@File    : knowledge_base.py
+@File    : knowledge_search.py
 @Time    : 2025/12/9
 @Desc    : 基于LangChain标准组件的知识库实现
 """

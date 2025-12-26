@@ -3,6 +3,7 @@
 聊天相关API路由
 """
 import logging
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -95,6 +96,7 @@ async def chat(request: ChatRequest):
                 else:
                     # 获取选中的工具
                     tools = await mcp_client.get_tools()
+                    print(f"可用的工具：{len(tools)}")
                     tools_map = {tool.name: tool for tool in tools}
                     selected_tools = []
                     for tool_name in request.tools:
@@ -128,14 +130,12 @@ async def chat(request: ChatRequest):
                         conversation_id=session_id,
                         sources=sources
                     )
-
                 except Exception as e:
-                    raise e
-                    error_msg = f"工作流执行失败: {str(e)}"
-                    raise HTTPException(status_code=500, detail=error_msg)
+                    logger.error(f"工作流执行失败: {e} -> {traceback.format_exc()}")
+                    raise HTTPException(status_code=500, detail=f"工作流执行失败: {e}")
 
     except Exception as e:
-        logger.error(f"Error in chat endpoint: {e}")
+        logger.error(f"Error in chat endpoint: {e} -> {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"聊天服务暂时不可用: {str(e)}")
 
 

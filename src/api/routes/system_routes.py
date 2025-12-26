@@ -40,7 +40,7 @@ async def root():
             "/models/list",
             "/vector-stores/list",
             "/embedders/list",
-            "/tools/list",
+            "/mcp/list",
             "/database/stats",
             "/health"
         ]

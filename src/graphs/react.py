@@ -89,7 +89,7 @@ class ReactGraph(BaseGraph):
 
         if self.tools:
             # 工具执行节点，执行LLM返回的tool_calls
-            self.add_node("tools", create_tool_executor_node(self.tools))
+            self.add_node("mcp", create_tool_executor_node(self.tools))
 
         # 添加记忆节点
         memory_summary = create_memory_summary_node(self.memory_manager)
@@ -113,13 +113,13 @@ class ReactGraph(BaseGraph):
                 source="generate",
                 path=self._should_use_tools,
                 path_map={
-                    "tools": "tools",
+                    "mcp": "mcp",
                     END: END
                 }
             )
             # 工具执行后，把工具结果写回messages，再让LLM继续
             # 注意：记忆总结会在每次生成后自动触发（通过状态变化）
-            self.add_edge("tools", "generate")
+            self.add_edge("mcp", "generate")
         else:
             self.add_edge("generate", END)
 
@@ -169,7 +169,7 @@ class ReactGraph(BaseGraph):
         if isinstance(last_msg, AIMessage) and getattr(last_msg, "tool_calls", None):
             tool_calls = last_msg.tool_calls
             if tool_calls:
-                return "tools"
+                return "mcp"
 
         return END
 

@@ -10,8 +10,8 @@ import json
 
 from .base_node import AsyncNode
 from ..state.base_state import AgentState
-from src.tools.mcp_client import MCPClient
-from src.tools.transports import TransportType
+from src.mcp.mcp_client import MCPClient
+from src.mcp.transports import TransportType
 
 
 class MCPToolNode(AsyncNode):

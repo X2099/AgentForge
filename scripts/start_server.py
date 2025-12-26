@@ -14,6 +14,7 @@ from pathlib import Path
 # 添加项目路径
 sys.path.append(str(Path(__file__).parent.parent))
 
+
 def check_virtual_env():
     """检查是否在虚拟环境中运行"""
     in_venv = sys.prefix != sys.base_prefix
@@ -39,6 +40,7 @@ def check_virtual_env():
     else:
         print("✅ 虚拟环境检查通过")
         return True
+
 
 def check_dependencies():
     """检查关键依赖是否已安装"""
@@ -67,7 +69,7 @@ def check_dependencies():
 
 def start_api_server(host="127.0.0.1", port=7861, reload=False):
     """启动API服务器"""
-    print(f"启动 LangGraph-ChatChat API 服务器...")
+    print(f"启动 AgentForge API 服务器...")
     print(f"地址: http://{host}:{port}")
     print(f"API文档: http://{host}:{port}/docs")
 
@@ -84,7 +86,7 @@ def start_webui(host="127.0.0.1", port=8501):
     """启动Web界面"""
     import subprocess
 
-    print(f"启动 LangGraph-ChatChat Web 界面...")
+    print(f"启动 AgentForge Web 界面...")
     print(f"地址: http://{host}:{port}")
 
     cmd = [
@@ -105,66 +107,9 @@ def start_mcp_server(host="127.0.0.1", port=8000):
 
     try:
         # 导入MCP相关模块
-        from src.tools.config.mcp_config import MCPToolConfig
-        from src.tools.mcp_registry import MCPToolRegistry
-        from src.tools.local_tools.calculator import CalculatorTool
-        from src.tools.local_tools.web_search import WebSearchTool
-        from src.tools.local_tools.knowledge_base import KnowledgeBaseTool
-        from src.tools.transports import TransportType
-
-        async def run_server():
-            # 1. 加载配置
-            config = MCPToolConfig()
-
-            # 2. 创建工具注册中心
-            registry = MCPToolRegistry(config.get_mcp_config())
-
-            # 3. 注册内置工具
-            enabled_tools = config.get_enabled_tools()
-
-            # if "calculator" in enabled_tools:
-            #     try:
-            #         calculator = CalculatorTool()
-            #         registry.register_builtin_tool(calculator)
-            #         print("✅ 注册计算器工具")
-            #     except Exception as e:
-            #         print(f"⚠️  注册计算器工具失败: {e}")
-
-            if "web_search" in enabled_tools:
-                try:
-                    web_search = WebSearchTool()
-                    registry.register_builtin_tool(web_search)
-                    print("✅ 注册网页搜索工具")
-                except Exception as e:
-                    print(f"⚠️  注册网页搜索工具失败: {e}")
-
-            # if "knowledge_base_search" in enabled_tools:
-            #     try:
-            #         kb_search = KnowledgeBaseTool()
-            #         registry.register_builtin_tool(kb_search)
-            #         print("✅ 注册知识库搜索工具")
-            #     except Exception as e:
-            #         print(f"⚠️  注册知识库搜索工具失败: {e}")
-
-            # 4. 获取服务器配置并更新端口
-            server_config = config.get_server_config()
-            transport_type = TransportType(server_config["transport_type"])
-            transport_config = server_config["transport_config"]
-
-            # 更新HTTP端口配置
-            if transport_type == TransportType.HTTP:
-                transport_config["port"] = port
-                transport_config["host"] = host
-
-            tool_names = registry.get_tool_names()
-            print(f"注册工具: {', '.join(tool_names)}")
-            print("按 Ctrl+C 停止服务器")
-
-            # 5. 启动服务器
-            await registry.start_server(transport_type, transport_config)
-
+        from src.mcp.mcp_server_http import server
         # 运行异步服务器
-        asyncio.run(run_server())
+        asyncio.run(server.run(transport="streamable-http"))
 
     except KeyboardInterrupt:
         print("\nMCP服务器已停止")
