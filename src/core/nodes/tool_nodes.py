@@ -142,7 +142,7 @@ def create_tool_router_node(
     """
     tool_map = {tool.name: tool for tool in tools}
 
-    async def tool_router_node(state: AgentState) -> Dict[str, Any]:
+    async def tool_router_node(state: GraphState) -> Dict[str, Any]:
         """
         工具路由节点
         

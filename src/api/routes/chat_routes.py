@@ -14,6 +14,7 @@ from langchain_core.messages import HumanMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.store.sqlite import SqliteStore
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.types import Command
 
 from src.config import SystemConfig
 from src.core.agents.agent_manager import AgentManager
@@ -104,28 +105,37 @@ async def chat(request: ChatRequest):
                         tool = tools_map.get(tool_name)
                         if tool:
                             selected_tools.append(tool)
-                    # graph = create_react_graph(
-                    #     llm,
-                    #     tools=selected_tools,
-                    #     checkpointer=checkpointer,
-                    #     store=store
-                    # )
-                    graph = create_langchain_agent(
-                        model=llm,
+                    graph = create_react_graph(
+                        llm,
                         tools=selected_tools,
                         checkpointer=checkpointer,
                         store=store
                     )
+                    # graph = create_langchain_agent(
+                    #     model=llm,
+                    #     tools=selected_tools,
+                    #     checkpointer=checkpointer,
+                    #     store=store
+                    # )
+
                 # 准备初始状态
-                initial_state = {
-                    "messages": [HumanMessage(content=request.query)],
-                    "query": request.query
-                }
                 config = {"configurable": {"thread_id": session_id}}
 
                 # 执行工作流
                 try:
-                    result = await graph.ainvoke(initial_state, config)
+                    if request.resume:
+                        result = await graph.ainvoke(Command(resume=request.resume), config)
+                    else:
+                        initial_state = {
+                            "messages": [HumanMessage(content=request.query)],
+                            "query": request.query
+                        }
+                        result = await graph.ainvoke(initial_state, config)
+                    interrupts = result.get("__interrupt__")
+                    interrupt = None
+                    if interrupts:
+                        interrupt = interrupts[0].value
+
                     response_content = result["messages"][-1].content if result["messages"] else ""
                     sources = result.get('sources', [])
 
@@ -135,7 +145,8 @@ async def chat(request: ChatRequest):
                     return ChatResponse(
                         response=response_content,
                         conversation_id=session_id,
-                        sources=sources
+                        sources=sources,
+                        interrupt=interrupt
                     )
                 except Exception as e:
                     logger.error(f"工作流执行失败: {e} -> {traceback.format_exc()}")

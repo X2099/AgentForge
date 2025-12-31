@@ -2,22 +2,46 @@
 import os
 import sys
 import asyncio
+from copy import deepcopy
 from pathlib import Path
 import sqlite3
+from pprint import pprint
 
 from langchain_core.messages import HumanMessage
+from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.store.sqlite import SqliteStore, AsyncSqliteStore
+from langgraph.types import Command
 
 # 允许从仓库根目录运行
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from src.config.system_config import SystemConfig
-from src.mcp.tool_funcs.calculator import calculator_tool
+# from src.mcp.tool_funcs.calculator import calculator_tool
 from src.graphs import create_react_graph
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+CHECKPOINT_DB = (BASE_DIR / "data" / "checkpoint.db").as_posix()
 STORE_DB = (BASE_DIR / "data" / "store.db").as_posix()
+
+client = MultiServerMCPClient(
+    {
+        # "AmapMcpServers": {
+        #     "transport": "http",
+        #     "url": f"https://mcp.amap.com/mcp?key={os.environ['AMAP_MCP_KEY']}",
+        # },
+        "LocalMcpStdio": {
+            "transport": "stdio",
+            "command": "python",
+            "args": ["src/mcp/mcp_server_stdio.py"],
+        },
+        # "LocalMcpHttp": {
+        #     "transport": "http",
+        #     "url": "http://127.0.0.1:8000/mcp",
+        # },
+    }
+)
 
 
 def create_mock_conversation() -> list[dict]:
@@ -78,54 +102,87 @@ def create_mock_conversation() -> list[dict]:
 
 
 async def main():
-    with SqliteStore.from_conn_string(STORE_DB) as store:
-        # 1) 构建模型（根据需要调整 provider/model 等配置）
-        model = SystemConfig().create_client(
-            model="deepseek-chat",  # 如需改用 openai/anthropic，请修改 provider
-        )
+    async with AsyncSqliteSaver.from_conn_string(CHECKPOINT_DB) as checkpointer:
+        with SqliteStore.from_conn_string(STORE_DB) as store:
+            # 1) 构建模型（根据需要调整 provider/model 等配置）
+            model = SystemConfig().create_client(
+                model="deepseek-chat",  # 如需改用 openai/anthropic，请修改 provider
+            )
 
-        # 2) 可选：准备工具列表
-        tools = [calculator_tool]
+            # 2) 可选：准备工具列表
+            tools = await client.get_tools()
 
-        # 3) 创建对话工作流（这里不接入知识库）
-        # store = InMemorySaver()
-        # store = SqliteStore(conn=sqlite3.connect(STORE_DB))
-        # print(store)
-        # return
-        react_agent = create_react_graph(
-            llm=model,
-            tools=tools,
-            system_prompt="你是一个乐于助人的助手，会在需要时调用可用的工具。",
-            checkpointer=InMemorySaver(),
-            store=store
-        )
+            # 3) 创建对话工作流（这里不接入知识库）
+            # store = InMemorySaver()
+            # store = SqliteStore(conn=sqlite3.connect(STORE_DB))
+            # print(store)
+            # return
+            react_agent = create_react_graph(
+                llm=model,
+                tools=tools,
+                system_prompt="你是一个乐于助人的助手，会在需要时调用可用的工具。",
+                checkpointer=InMemorySaver() or checkpointer,
+                store=store
+            )
 
-        png_bytes = react_agent.get_graph().draw_mermaid_png()
-        with open("assets/langgraph_react_agent.png", "wb") as f:
-            f.write(png_bytes)
+            png_bytes = react_agent.get_graph().draw_mermaid_png()
+            with open("assets/langgraph_react_agent.png", "wb") as f:
+                f.write(png_bytes)
 
-        # 4) 组织初始状态并调用
-        initial_state = {
-            "messages": create_mock_conversation() + [{
-                "role": "user",
-                "content": "我们都聊了些什么？"
-            }]
-        }
-        # initial_state = {
-        #     "messages": [{
-        #         "role": "user",
-        #         "content": "你好，我是Kevin！"
-        #     }]
-        # }
-        config = {"configurable": {"thread_id": "demo-thread"}}
+            # return
 
-        result = await react_agent.ainvoke(initial_state, config)
+            # 4) 组织初始状态并调用
+            config = {"configurable": {"thread_id": "demo-thread-20251231"}}
+            # initial_state = {
+            #     "messages": create_mock_conversation() + [{
+            #         "role": "user",
+            #         "content": "我们都聊了些什么？"
+            #     }]
+            # }
+            initial_state = {
+                "messages": [{
+                    "role": "user",
+                    "content": "你好，我是Kevin，帮我计算一下4*6减去5的平方根。"
+                }]
+            }
+            result = await react_agent.ainvoke(initial_state, config)
 
-        # 5) 打印结果
-        messages = result.get("messages", [])
+            interrupts = result.get("__interrupt__")
+            if interrupts:
+                interrupt = interrupts[0]
+                interrupt_value = interrupt.value
+                print(type(interrupt_value))
+                print(interrupt_value)
+                """
+                {'type': 'tool_confirm', 'human_arguments': [
+                    {'name': 'calculator',
+                     'args': {'expression': '4*6'},
+                     'id': 'call_00_iaUTE2xMnmPs3OR2SouDoWTf'}
+                ],
+                 'decision': None}
+                """
+                resume = deepcopy(interrupt_value)
+                resume["decision"] = "reject"
 
-        for m in messages:
-            m.pretty_print()
+                # resume = {
+                #     "pending_tool_calls": [
+                #         {
+                #             "name": "calculator",
+                #             "id": "call_00_diC3WpgAwvhncUYowIWO4LXQ",
+                #             'args': {'expression': '4*6 - sqrt(5)'}
+                #         }
+                #     ],
+                #     "decision": "approve"
+                # }
+                result = await react_agent.ainvoke(Command(resume=resume), config)
+
+                # 5) 打印结果
+
+                pprint(result)
+
+            messages = result.get("messages", [])
+            for m in messages:
+                m.pretty_print()
 
 
 if __name__ == "__main__":

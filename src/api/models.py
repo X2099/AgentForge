@@ -18,6 +18,7 @@ class ChatRequest(BaseModel):
     tools: Optional[List[str]] = None  # 选中的工具名称列表
     model: Optional[str] = None  # 选中的模型名称
     mode: Optional[str] = None  # 图类型（agent或rag）
+    resume: dict | None = None
 
 
 class ChatResponse(BaseModel):
@@ -25,6 +26,7 @@ class ChatResponse(BaseModel):
     response: str
     conversation_id: str
     sources: Optional[List[Dict[str, Any]]] = None
+    interrupt: Dict | None = None
 
 
 class KnowledgeBaseRequest(BaseModel):

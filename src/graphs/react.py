@@ -4,16 +4,18 @@
 @Time    : 2025/12/9 14:39
 @Desc    : 基于LangGraph构建的ReactAgent
 """
+import json
 import traceback
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Literal
 from langgraph.graph import START, END
-from langchain_core.messages import SystemMessage, AIMessage
+from langchain_core.messages import SystemMessage, AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.base import BaseStore
+from langgraph.types import interrupt, Command
 
 from ..core.graphs.base_graph import BaseGraph
 from ..core.state.base_state import GraphState
@@ -31,6 +33,20 @@ class ReactGraphState(GraphState):
     query: Optional[str]
     context: Optional[str]
     messages_summary: Optional[str]  # 记忆摘要
+
+    # 最近一次模型提出的工具调用
+    pending_tool_calls: list[dict[str, Any]] | None
+    # [
+    #     {
+    #         "name": "search",
+    #         "arguments": {...}
+    #     },
+    #     ...
+    # ]
+
+    # 人工确认结果
+    human_decision: Literal["approve", "reject", "modify"] | None
+    human_arguments: list[dict[str, Any]] | None
 
 
 class ReactGraph(BaseGraph):
@@ -89,7 +105,8 @@ class ReactGraph(BaseGraph):
 
         if self.tools:
             # 工具执行节点，执行LLM返回的tool_calls
-            self.add_node("mcp", create_tool_executor_node(self.tools))
+            self.add_node("review_tools_call", self._human_confirm_node)
+            self.add_node("tools_call", self._call_tools_node)
 
         # 添加记忆节点
         memory_summary = create_memory_summary_node(self.memory_manager)
@@ -113,17 +130,26 @@ class ReactGraph(BaseGraph):
                 source="generate",
                 path=self._should_use_tools,
                 path_map={
-                    "mcp": "mcp",
+                    "review_tools_call": "review_tools_call",
                     END: END
                 }
             )
+            # self.add_conditional_edges(
+            #     source="tools_confirm",
+            #     path=self._route_after_human,
+            #     path_map={
+            #         "tools_call": "tools_call",
+            #         "generate": "generate"
+            #     }
+            # )
+            self.add_edge("review_tools_call", "tools_call")
             # 工具执行后，把工具结果写回messages，再让LLM继续
             # 注意：记忆总结会在每次生成后自动触发（通过状态变化）
-            self.add_edge("mcp", "generate")
+            self.add_edge("tools_call", "generate")
         else:
             self.add_edge("generate", END)
 
-    async def _generate_node(self, state: ReactGraphState) -> Dict[str, Any]:
+    async def _generate_node(self, state: ReactGraphState, resume: dict | None = None) -> Dict[str, Any]:
         """LLM生成节点"""
         # 准备消息
         system_prompt = self.system_prompt
@@ -146,7 +172,10 @@ class ReactGraph(BaseGraph):
 
             return {
                 "messages": [message],
-                "response": message.content
+                "response": message.content,
+                "pending_tool_calls": None,
+                "human_decision": None,
+                "human_arguments": None
             }
 
         except Exception as e:
@@ -155,7 +184,10 @@ class ReactGraph(BaseGraph):
             return {
                 "messages": [AIMessage(content=error_content)],
                 "response": error_content,
-                "error": str(e)
+                "error": str(e),
+                "pending_tool_calls": None,
+                "human_decision": None,
+                "human_arguments": None
             }
 
     def _should_use_tools(self, state: ReactGraphState) -> str:
@@ -169,9 +201,94 @@ class ReactGraph(BaseGraph):
         if isinstance(last_msg, AIMessage) and getattr(last_msg, "tool_calls", None):
             tool_calls = last_msg.tool_calls
             if tool_calls:
-                return "mcp"
+                return "review_tools_call"
 
         return END
+
+    async def _call_tools_node(self, state: ReactGraphState) -> dict:
+        tools_map = {tool.name: tool for tool in self.tools}
+        tool_messages = []
+        human_decision = state.get("human_decision")
+        if human_decision == "approve":
+            tool_calls = state["pending_tool_calls"]
+        elif human_decision == "modify":
+            tool_calls = state["human_arguments"]
+        else:
+            tool_calls = state["pending_tool_calls"]
+            tool_messages = [
+                ToolMessage(content="用户在审核后拒绝了本次工具调用，请按要求和约束条件直接生成答案。",
+                            tool_call_id=tool_call['id'])
+                for tool_call in tool_calls
+            ]
+            return {"messages": tool_messages}
+        for tool_call in tool_calls:
+            tool_name = tool_call["name"]
+            tool_id = tool_call["id"]
+            if tool_name not in tools_map:
+                tool_message = ToolMessage(
+                    content=f"工具 '{tool_name}' 未找到",
+                    tool_call_id=tool_id
+                )
+                tool_messages.append(tool_message)
+                continue
+
+            tool = tools_map[tool_name]
+
+            try:
+                # 执行工具
+                result = await tool.ainvoke(tool_call["arguments"])
+                # 转换为字符串
+                if isinstance(result, dict):
+                    result_str = json.dumps(result, ensure_ascii=False, indent=2)
+                else:
+                    result_str = str(result)
+                # 创建工具消息
+                tool_message = ToolMessage(
+                    content=result_str,
+                    tool_call_id=tool_id
+                )
+                tool_messages.append(tool_message)
+            except Exception as e:
+                tool_message = ToolMessage(
+                    content=f"工具执行失败: {e}",
+                    tool_call_id=tool_id
+                )
+                tool_messages.append(tool_message)
+
+        return {"messages": tool_messages}
+
+    # def _route_after_human(self, state: ReactGraphState) -> str:
+    #     """
+    #     人工确认后路由下一个节点
+    #     """
+    #     human_decision = state.get("human_decision")
+    #     if human_decision in ("approve", "modify"):
+    #         return "tools_call"
+    #     return "generate"
+
+    async def _human_confirm_node(self, state: ReactGraphState) -> dict:
+        """
+        调用工具前进行人工确认
+        """
+        last_msg = state["messages"][-1]
+        pending_tool_calls = [
+            {
+                "name": tool_call["name"],
+                "arguments": tool_call["args"],
+                "id": tool_call["id"]
+            }
+            for tool_call in last_msg.tool_calls
+        ]
+        human_resume = interrupt({
+            "type": "tool_confirm",
+            "human_arguments": pending_tool_calls
+        })
+
+        return {
+            "pending_tool_calls": pending_tool_calls,
+            "human_decision": human_resume["decision"],
+            "human_arguments": human_resume["human_arguments"]
+        }
 
 
 def create_react_graph(

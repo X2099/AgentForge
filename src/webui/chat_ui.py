@@ -4,9 +4,11 @@
 @Time    : 2025/12/9 15:54
 @Desc    : 
 """
+import json
 from datetime import datetime
 import requests
 import streamlit as st
+from streamlit_ace import st_ace
 
 from . import API_BASE_URL
 from .styles.custom_styles import apply_custom_styles
@@ -124,6 +126,36 @@ def render_api_status():
         st.caption("启动命令: `python scripts/start_server.py --mode api`")
 
 
+@st.dialog("人工审核工具调用")
+def human_confirm(user_input: str, mode: str, selected_model: str = None, payload: dict = None):
+    st.markdown("### 即将执行的工具")
+    human_arguments = st_ace(
+        value=json.dumps(payload, indent=2, ensure_ascii=False),
+        language="json",
+        theme="github",
+        height=300,
+        key="json_editor"
+    )
+    if st.button("直接执行"):
+        st.session_state.resume_payload = {
+            "decision": "approve",
+            "human_arguments": None
+        }
+        process_user_input(user_input, mode, selected_model)
+    elif st.button("修改执行"):
+        st.session_state.resume_payload = {
+            "decision": "modify",
+            "human_arguments": json.loads(human_arguments)
+        }
+        process_user_input(user_input, mode, selected_model)
+    elif st.button("拒绝"):
+        st.session_state.resume_payload = {
+            "decision": "reject",
+            "human_arguments": None
+        }
+        process_user_input(user_input, mode, selected_model)
+
+
 def process_user_input(user_input: str, mode: str, selected_model: str = None):
     """处理用户输入并生成回复"""
     # 获取当前设置
@@ -137,6 +169,9 @@ def process_user_input(user_input: str, mode: str, selected_model: str = None):
             try:
                 # 准备历史消息（不包括当前用户消息，因为它已经在历史中了）
                 history = st.session_state.conversation_history[:-1]
+                resume_payload = None
+                if "resume_payload" in st.session_state:
+                    resume_payload = st.session_state.pop("resume_payload", None)
 
                 # 调用API，传递会话ID和用户ID（如果已登录）
                 payload = {
@@ -149,66 +184,71 @@ def process_user_input(user_input: str, mode: str, selected_model: str = None):
                     "use_knowledge_base": use_kb,
                     "tools": selected_tools,
                     "model": selected_model,
-                    "mode": mode
+                    "mode": mode,
+                    "resume": resume_payload
                 }
 
                 response = requests.post(f"{API_BASE_URL}/chat", json=payload, timeout=60)
-
-                if response.status_code == 200:
-                    # 解析响应
-                    response_data = response.json()
-                    assistant_message = response_data.get("response", "")
-                    sources = response_data.get("sources", [])
-                    conversation_id = response_data.get("conversation_id")
-
-                    # 更新当前会话ID（如果API返回了新的会话ID）
-                    if conversation_id and conversation_id != current_session_id:
-                        st.session_state[f'current_session_id_{mode}'] = conversation_id
-
-                    # 显示回复
-                    if assistant_message:
-                        st.write(assistant_message)
-                    else:
-                        st.warning("助手没有返回有效回复")
-
-                    # 创建列来并排显示来源和元数据
-                    col1, col2 = st.columns(2)
-
-                    # 显示来源
-                    with col1:
-                        if sources:
-                            with st.expander("📚 信息来源"):
-                                for i, source in enumerate(sources, 1):
-                                    st.caption(f"**来源 {i}:** {source.get('source', '未知')}")
-                                    content = source.get("content", "")
-                                    if len(content) > 200:
-                                        content = content[:200] + "..."
-                                    st.caption(content)
-
-                    # 添加到历史
-                    st.session_state.conversation_history.append({
-                        "role": "ai",
-                        "content": assistant_message,
-                        "sources": sources
-                    })
-
-                    # 更新当前会话的消息和时间戳
-                    current_session = get_current_session(mode)
-                    if current_session:
-                        current_session["messages"] = st.session_state.conversation_history.copy()
-                        current_session["updated_at"] = datetime.now()
-
-                        # 如果是第一次对话，根据用户输入自动更新标题
-                        if len(current_session["messages"]) == 2:  # 用户消息 + 助手消息
-                            first_user_msg = current_session["messages"][0]["content"]
-                            if len(first_user_msg) > 20:
-                                current_session["title"] = f"{first_user_msg[:20]}..."
-                            else:
-                                current_session["title"] = first_user_msg
-                else:
+                if response.status_code != 200:
                     st.error(f"API请求失败 (状态码: {response.status_code})")
                     st.caption(f"错误详情: {response.text}")
+                    return
+                response_data = response.json()
+                # 人机交互
+                interrupt = response_data.get("interrupt")
+                if interrupt and resume_payload is None:
+                    # 保存当前 interrupt（用于下一轮 resume）
+                    human_confirm(user_input, mode, selected_model, interrupt)
+                    # st.stop()
 
+                assistant_message = response_data.get("response", "")
+                sources = response_data.get("sources", [])
+                conversation_id = response_data.get("conversation_id")
+
+                # 更新当前会话ID（如果API返回了新的会话ID）
+                if conversation_id and conversation_id != current_session_id:
+                    st.session_state[f'current_session_id_{mode}'] = conversation_id
+
+                # 显示回复
+                if assistant_message:
+                    st.write(assistant_message)
+                else:
+                    st.warning("助手没有返回有效回复")
+
+                # 创建列来并排显示来源和元数据
+                col1, col2 = st.columns(2)
+
+                # 显示来源
+                with col1:
+                    if sources:
+                        with st.expander("📚 信息来源"):
+                            for i, source in enumerate(sources, 1):
+                                st.caption(f"**来源 {i}:** {source.get('source', '未知')}")
+                                content = source.get("content", "")
+                                if len(content) > 200:
+                                    content = content[:200] + "..."
+                                st.caption(content)
+
+                # 添加到历史
+                st.session_state.conversation_history.append({
+                    "role": "ai",
+                    "content": assistant_message,
+                    "sources": sources
+                })
+
+                # 更新当前会话的消息和时间戳
+                current_session = get_current_session(mode)
+                if current_session:
+                    current_session["messages"] = st.session_state.conversation_history.copy()
+                    current_session["updated_at"] = datetime.now()
+
+                    # 如果是第一次对话，根据用户输入自动更新标题
+                    if len(current_session["messages"]) == 2:  # 用户消息 + 助手消息
+                        first_user_msg = current_session["messages"][0]["content"]
+                        if len(first_user_msg) > 20:
+                            current_session["title"] = f"{first_user_msg[:20]}..."
+                        else:
+                            current_session["title"] = first_user_msg
             except requests.exceptions.Timeout:
                 st.error("⏰ 请求超时，请稍后重试")
             except requests.exceptions.ConnectionError:
